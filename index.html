@@ -284,7 +284,15 @@
           <div class="chart-body tall"><canvas id="chart-rec-srch"></canvas></div>
         </div>
       </div>
-      <div class="tbl-card">
+      <!-- Recruiter sub-tabs -->
+      <div class="rec-tabs">
+        <button class="rec-tab active" onclick="switchRecTab(this,'rec-summary')">📊 Summary</button>
+        <button class="rec-tab" onclick="switchRecTab(this,'rec-post-matrix')">📋 Job Postings by Board</button>
+        <button class="rec-tab" onclick="switchRecTab(this,'rec-srch-matrix')">🔍 Resume Activity by Board</button>
+      </div>
+
+      <!-- Tab 1: Summary -->
+      <div id="rec-summary" class="rec-tab-pane tbl-card">
         <div class="tbl-hdr">
           <span>Recruiter Performance Summary</span>
           <button class="btn btn-ghost sm" onclick="exportCSV('recruiter-tbl')">Export CSV</button>
@@ -303,6 +311,26 @@
             <tbody id="dtbl-recruiters-body"></tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Tab 2: Posting matrix -->
+      <div id="rec-post-matrix" class="rec-tab-pane tbl-card" style="display:none">
+        <div class="tbl-hdr">
+          <span>Jobs Posted — Recruiter × Board</span>
+          <span class="tbl-hint">Hover a cell for views &amp; applications · Sorted by total activity</span>
+          <button class="btn btn-ghost sm" onclick="exportCSV('rec-post-matrix')">Export CSV</button>
+        </div>
+        <div class="tbl-wrap" id="rec-post-matrix-wrap"></div>
+      </div>
+
+      <!-- Tab 3: Search matrix -->
+      <div id="rec-srch-matrix" class="rec-tab-pane tbl-card" style="display:none">
+        <div class="tbl-hdr">
+          <span>Resumes Viewed — Recruiter × Source</span>
+          <span class="tbl-hint">Color intensity = relative activity per source · Sorted by total views</span>
+          <button class="btn btn-ghost sm" onclick="exportCSV('rec-srch-matrix')">Export CSV</button>
+        </div>
+        <div class="tbl-wrap" id="rec-srch-matrix-wrap"></div>
       </div>
     </section>
 

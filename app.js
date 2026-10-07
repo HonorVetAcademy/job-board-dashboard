@@ -39,6 +39,9 @@ const APP = {
   // Recruiter summaries
   recPost:   {},  // { recruiter: { jobs, views, applications, boards } }
   recSrch:   {},  // { recruiter: { views, boards } }
+  // Recruiter × Board breakdowns (for matrix tables)
+  recPostByBoard: {},  // { recruiter: { board: { jobs, views, applications } } }
+  recSrchByBoard: {},  // { recruiter: { board: { views } } }
   // Time series (keyed by 'YYYY-MM-DD')
   postByDate: {},
   srchByDate: {},
@@ -538,12 +541,14 @@ function parseAllSearches(wb) {
 
 // ── AGGREGATION ───────────────────────────────────────────
 function aggregate() {
-  APP.boardPost  = {};
-  APP.boardSrch  = {};
-  APP.recPost    = {};
-  APP.recSrch    = {};
-  APP.postByDate = {};
-  APP.srchByDate = {};
+  APP.boardPost      = {};
+  APP.boardSrch      = {};
+  APP.recPost        = {};
+  APP.recSrch        = {};
+  APP.recPostByBoard = {};
+  APP.recSrchByBoard = {};
+  APP.postByDate     = {};
+  APP.srchByDate     = {};
 
   // Posting records
   for (const r of APP.fPostRecs) {
@@ -562,6 +567,12 @@ function aggregate() {
       APP.recPost[r.recruiter].views += r.views;
       APP.recPost[r.recruiter].applications += r.applications;
       APP.recPost[r.recruiter].boards.add(b);
+      // Recruiter × Board breakdown
+      if (!APP.recPostByBoard[r.recruiter]) APP.recPostByBoard[r.recruiter] = {};
+      if (!APP.recPostByBoard[r.recruiter][b]) APP.recPostByBoard[r.recruiter][b] = { jobs:0, views:0, applications:0 };
+      APP.recPostByBoard[r.recruiter][b].jobs++;
+      APP.recPostByBoard[r.recruiter][b].views += r.views;
+      APP.recPostByBoard[r.recruiter][b].applications += r.applications;
     }
 
     if (r.date) {
@@ -586,6 +597,10 @@ function aggregate() {
       if (!APP.recSrch[r.recruiter]) APP.recSrch[r.recruiter] = { views: 0, boards: new Set() };
       APP.recSrch[r.recruiter].views += r.views || 0;
       APP.recSrch[r.recruiter].boards.add(b);
+      // Recruiter × Board breakdown
+      if (!APP.recSrchByBoard[r.recruiter]) APP.recSrchByBoard[r.recruiter] = {};
+      if (!APP.recSrchByBoard[r.recruiter][b]) APP.recSrchByBoard[r.recruiter][b] = { views:0 };
+      APP.recSrchByBoard[r.recruiter][b].views += r.views || 0;
     }
 
     if (r.date) {
@@ -997,6 +1012,8 @@ function renderTables() {
   renderPostingsTable();
   renderSearchesTable();
   renderRecruitersTable();
+  renderRecruiterPostMatrix();
+  renderRecruiterSrchMatrix();
 }
 
 function renderPostingsTable() {
@@ -1066,6 +1083,141 @@ function renderRecruitersTable() {
     <td class="r">${fmtNum(r.srchViews)}</td>
     <td>${[...r.boards].join(', ') || '—'}</td>
   </tr>`).join('');
+}
+
+// ── RECRUITER × BOARD MATRIX ──────────────────────────────
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function switchRecTab(btn, paneId) {
+  document.querySelectorAll('.rec-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.rec-tab-pane').forEach(p => p.style.display = 'none');
+  btn.classList.add('active');
+  const pane = document.getElementById(paneId);
+  if (pane) pane.style.display = '';
+}
+
+function renderRecruiterPostMatrix() {
+  const wrap = document.getElementById('rec-post-matrix-wrap');
+  if (!wrap) return;
+  const SKIP = new Set(['system','total','grand total','','—']);
+
+  const recs = Object.keys(APP.recPostByBoard)
+    .filter(r => r && r.length > 1 && !SKIP.has(r.toLowerCase().trim()));
+  if (!recs.length) { wrap.innerHTML = '<p style="padding:1rem;color:#888">No posting data by board available.</p>'; return; }
+
+  // Get all boards, sorted by total jobs desc
+  const boardSet = new Set();
+  for (const r of recs) Object.keys(APP.recPostByBoard[r]).forEach(b => boardSet.add(b));
+  const boards = [...boardSet].sort((a,b) => {
+    const ta = recs.reduce((s,r) => s + (APP.recPostByBoard[r][a]?.jobs||0), 0);
+    const tb = recs.reduce((s,r) => s + (APP.recPostByBoard[r][b]?.jobs||0), 0);
+    return tb - ta;
+  });
+
+  // Sort recruiters by total jobs desc
+  recs.sort((a,b) => {
+    const ta = Object.values(APP.recPostByBoard[a]).reduce((s,v) => s+v.jobs, 0);
+    const tb = Object.values(APP.recPostByBoard[b]).reduce((s,v) => s+v.jobs, 0);
+    return tb - ta;
+  });
+
+  // Max per board (for heat-map scaling)
+  const boardMax = {};
+  for (const bd of boards) boardMax[bd] = Math.max(...recs.map(r => APP.recPostByBoard[r][bd]?.jobs||0));
+
+  let html = '<table class="dtbl matrix-tbl"><thead><tr>';
+  html += '<th>Recruiter</th><th class="r">Total</th>';
+  for (const bd of boards) {
+    const c = boardColor(bd);
+    html += `<th class="r matrix-col-hdr" style="border-bottom:3px solid ${c}"><span class="board-dot" style="background:${c}"></span>${bd}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const r of recs) {
+    const total = Object.values(APP.recPostByBoard[r]).reduce((s,v) => s+v.jobs, 0);
+    html += `<tr><td class="rec-name"><strong>${r}</strong></td><td class="r total-cell"><strong>${total}</strong></td>`;
+    for (const bd of boards) {
+      const d = APP.recPostByBoard[r][bd];
+      const val = d?.jobs || 0;
+      const alpha = boardMax[bd] > 0 ? 0.12 + (val/boardMax[bd])*0.55 : 0;
+      const bg = val > 0 ? hexToRgba(boardColor(bd), alpha) : '#f6f7f9';
+      const tip = val > 0 ? `title="${val} job${val>1?'s':''} | ${fmtNum(d.views)} views | ${fmtNum(d.applications)} apps"` : '';
+      html += `<td class="r matrix-cell" style="background:${bg}" ${tip}>${val > 0 ? `<strong>${val}</strong>` : '<span class="zero">—</span>'}</td>`;
+    }
+    html += '</tr>';
+  }
+
+  // Totals row
+  const grandTotal = recs.reduce((s,r) => s + Object.values(APP.recPostByBoard[r]).reduce((ss,v) => ss+v.jobs, 0), 0);
+  html += `<tr class="matrix-total"><td><strong>Total</strong></td><td class="r"><strong>${grandTotal}</strong></td>`;
+  for (const bd of boards) {
+    const ct = recs.reduce((s,r) => s+(APP.recPostByBoard[r][bd]?.jobs||0), 0);
+    html += `<td class="r"><strong>${ct}</strong></td>`;
+  }
+  html += '</tr></tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function renderRecruiterSrchMatrix() {
+  const wrap = document.getElementById('rec-srch-matrix-wrap');
+  if (!wrap) return;
+  const SKIP = new Set(['system','total','grand total','','—']);
+
+  const recs = Object.keys(APP.recSrchByBoard)
+    .filter(r => r && r.length > 1 && !SKIP.has(r.toLowerCase().trim()));
+  if (!recs.length) { wrap.innerHTML = '<p style="padding:1rem;color:#888">No resume search data by board available.</p>'; return; }
+
+  const boardSet = new Set();
+  for (const r of recs) Object.keys(APP.recSrchByBoard[r]).forEach(b => boardSet.add(b));
+  const boards = [...boardSet].sort((a,b) => {
+    const ta = recs.reduce((s,r) => s+(APP.recSrchByBoard[r][a]?.views||0), 0);
+    const tb = recs.reduce((s,r) => s+(APP.recSrchByBoard[r][b]?.views||0), 0);
+    return tb - ta;
+  });
+
+  recs.sort((a,b) => {
+    const ta = Object.values(APP.recSrchByBoard[a]).reduce((s,v) => s+v.views, 0);
+    const tb = Object.values(APP.recSrchByBoard[b]).reduce((s,v) => s+v.views, 0);
+    return tb - ta;
+  });
+
+  const boardMax = {};
+  for (const bd of boards) boardMax[bd] = Math.max(...recs.map(r => APP.recSrchByBoard[r][bd]?.views||0));
+
+  let html = '<table class="dtbl matrix-tbl"><thead><tr>';
+  html += '<th>Recruiter</th><th class="r">Total Views</th>';
+  for (const bd of boards) {
+    const c = boardColor(bd);
+    html += `<th class="r matrix-col-hdr" style="border-bottom:3px solid ${c}"><span class="board-dot" style="background:${c}"></span>${bd}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const r of recs) {
+    const total = Object.values(APP.recSrchByBoard[r]).reduce((s,v) => s+v.views, 0);
+    html += `<tr><td class="rec-name"><strong>${r}</strong></td><td class="r total-cell"><strong>${fmtNum(total)}</strong></td>`;
+    for (const bd of boards) {
+      const val = APP.recSrchByBoard[r][bd]?.views || 0;
+      const alpha = boardMax[bd] > 0 ? 0.12 + (val/boardMax[bd])*0.55 : 0;
+      const bg = val > 0 ? hexToRgba(boardColor(bd), alpha) : '#f6f7f9';
+      const tip = val > 0 ? `title="${fmtNum(val)} resumes viewed"` : '';
+      html += `<td class="r matrix-cell" style="background:${bg}" ${tip}>${val > 0 ? `<strong>${fmtNum(val)}</strong>` : '<span class="zero">—</span>'}</td>`;
+    }
+    html += '</tr>';
+  }
+
+  const grandTotal = recs.reduce((s,r) => s+Object.values(APP.recSrchByBoard[r]).reduce((ss,v) => ss+v.views, 0), 0);
+  html += `<tr class="matrix-total"><td><strong>Total</strong></td><td class="r"><strong>${fmtNum(grandTotal)}</strong></td>`;
+  for (const bd of boards) {
+    const ct = recs.reduce((s,r) => s+(APP.recSrchByBoard[r][bd]?.views||0), 0);
+    html += `<td class="r"><strong>${fmtNum(ct)}</strong></td>`;
+  }
+  html += '</tr></tbody></table>';
+  wrap.innerHTML = html;
 }
 
 // ── INSIGHTS ──────────────────────────────────────────────
@@ -1210,6 +1362,36 @@ function exportCSV(type) {
       const s = APP.recSrch[r] || {};
       const boards = new Set([...(p.boards||[]), ...(s.boards||[])]);
       rows.push([r, p.vertical||'', p.jobs||0, p.views||0, p.applications||0, s.views||0, [...boards].join('; ')]);
+    });
+  } else if (type === 'rec-post-matrix') {
+    filename = 'recruiter_postings_by_board.csv';
+    const SKIP = new Set(['system','total','grand total','','—']);
+    const recs = Object.keys(APP.recPostByBoard).filter(r => r && r.length > 1 && !SKIP.has(r.toLowerCase().trim()));
+    const boardSet = new Set();
+    for (const r of recs) Object.keys(APP.recPostByBoard[r]).forEach(b => boardSet.add(b));
+    const boards = [...boardSet].sort((a,b) => {
+      return recs.reduce((s,r)=>s+(APP.recPostByBoard[r][b]?.jobs||0),0) - recs.reduce((s,r)=>s+(APP.recPostByBoard[r][a]?.jobs||0),0);
+    });
+    rows = [['Recruiter','Total Jobs',...boards.flatMap(b=>[b+' Jobs',b+' Views',b+' Apps'])]];
+    recs.sort((a,b)=>Object.values(APP.recPostByBoard[b]).reduce((s,v)=>s+v.jobs,0)-Object.values(APP.recPostByBoard[a]).reduce((s,v)=>s+v.jobs,0));
+    recs.forEach(r => {
+      const total = Object.values(APP.recPostByBoard[r]).reduce((s,v)=>s+v.jobs,0);
+      rows.push([r, total, ...boards.flatMap(b=>[APP.recPostByBoard[r][b]?.jobs||0, APP.recPostByBoard[r][b]?.views||0, APP.recPostByBoard[r][b]?.applications||0])]);
+    });
+  } else if (type === 'rec-srch-matrix') {
+    filename = 'recruiter_searches_by_board.csv';
+    const SKIP = new Set(['system','total','grand total','','—']);
+    const recs = Object.keys(APP.recSrchByBoard).filter(r => r && r.length > 1 && !SKIP.has(r.toLowerCase().trim()));
+    const boardSet = new Set();
+    for (const r of recs) Object.keys(APP.recSrchByBoard[r]).forEach(b => boardSet.add(b));
+    const boards = [...boardSet].sort((a,b) => {
+      return recs.reduce((s,r)=>s+(APP.recSrchByBoard[r][b]?.views||0),0) - recs.reduce((s,r)=>s+(APP.recSrchByBoard[r][a]?.views||0),0);
+    });
+    rows = [['Recruiter','Total Views',...boards]];
+    recs.sort((a,b)=>Object.values(APP.recSrchByBoard[b]).reduce((s,v)=>s+v.views,0)-Object.values(APP.recSrchByBoard[a]).reduce((s,v)=>s+v.views,0));
+    recs.forEach(r => {
+      const total = Object.values(APP.recSrchByBoard[r]).reduce((s,v)=>s+v.views,0);
+      rows.push([r, total, ...boards.map(b=>APP.recSrchByBoard[r][b]?.views||0)]);
     });
   }
   if (!rows.length) return;
