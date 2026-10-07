@@ -1335,6 +1335,193 @@ function setMode(btn) {
   else renderSearchTrendChart();
 }
 
+// ── VIEW SWITCHER ─────────────────────────────────────────
+function switchView(view) {
+  const isRec = view === 'recruiter';
+  document.getElementById('vtog-exec').classList.toggle('active', !isRec);
+  document.getElementById('vtog-rec').classList.toggle('active', isRec);
+  // Toggle executive sections
+  ['sec-kpis','sec-postings','sec-searches','sec-boards','sec-recruiters','sec-insights'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isRec ? 'none' : '';
+  });
+  document.getElementById('dash-nav').style.display = isRec ? 'none' : '';
+  document.getElementById('filter-bar').style.display = isRec ? 'none' : '';
+  document.getElementById('recruiter-view').style.display = isRec ? 'block' : 'none';
+  if (isRec) populateRvPicker();
+}
+
+function populateRvPicker() {
+  const sel = document.getElementById('rv-recruiter');
+  if (!sel) return;
+  const SKIP = new Set(['system','total','grand total','','—']);
+  const allRecs = [...new Set([
+    ...Object.keys(APP.recPost),
+    ...Object.keys(APP.recSrch)
+  ])].filter(r => r && r.length > 1 && !SKIP.has(r.toLowerCase().trim())).sort();
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Select a recruiter —</option>' +
+    allRecs.map(r => `<option value="${r}"${r===cur?' selected':''}>${r}</option>`).join('');
+  if (cur && allRecs.includes(cur)) renderRecruiterView();
+}
+
+function renderRecruiterView() {
+  const name = document.getElementById('rv-recruiter')?.value || '';
+  if (!name) {
+    document.getElementById('rv-kpis').innerHTML = '<p class="rv-empty">Select a recruiter above to load their dashboard.</p>';
+    ['rv-portal-body','rv-jobs-body','rv-srch-body'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '';
+    });
+    return;
+  }
+  renderRvKpis(name);
+  renderRvPortalTable(name);
+  renderRvJobsList(name);
+  renderRvSearchActivity(name);
+}
+
+function renderRvKpis(name) {
+  const p = APP.recPost[name]  || { jobs:0, views:0, applications:0, boards: new Set() };
+  const s = APP.recSrch[name] || { views:0, boards: new Set() };
+  const pbb = APP.recPostByBoard[name] || {};
+  const conv = p.views > 0 ? (p.applications/p.views*100).toFixed(1)+'%' : '0%';
+  const cards = [
+    { label:'Jobs Posted',     val: fmtNum(p.jobs),         icon:'📋', cls:'c-navy'    },
+    { label:'Total Views',     val: fmtNum(p.views),        icon:'👁',  cls:'c-sky'     },
+    { label:'Applications',    val: fmtNum(p.applications), icon:'📩', cls:'c-teal'    },
+    { label:'Conv. Rate',      val: conv,                   icon:'📈', cls:'c-success'  },
+    { label:'Resumes Viewed',  val: fmtNum(s.views),        icon:'🔍', cls:'c-purple'  },
+    { label:'Portals Active',  val: Object.keys(pbb).length, icon:'🏢', cls:'c-orange' },
+  ];
+  document.getElementById('rv-kpis').innerHTML = cards.map(c => `
+    <div class="kpi-card ${c.cls}">
+      <div class="kpi-icon">${c.icon}</div>
+      <div class="kpi-body">
+        <div class="kpi-val">${c.val}</div>
+        <div class="kpi-lbl">${c.label}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderRvPortalTable(name) {
+  const tbody = document.getElementById('rv-portal-body');
+  if (!tbody) return;
+  const alloc  = loadAllocations();
+  const pbb    = APP.recPostByBoard[name] || {};
+  const myPosts = APP.fPostRecs.filter(r => r.recruiter === name);
+  const boards  = Object.keys(pbb).sort((a,b) => pbb[b].jobs - pbb[a].jobs);
+
+  if (!boards.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">No posting data found for this recruiter.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = boards.map(bd => {
+    const d  = pbb[bd];
+    const al = alloc[bd] || null;
+    const activePosts  = myPosts.filter(r => r.board === bd && r.active === true).length;
+    // If active field not parsed, use total (treat all as posted)
+    const hasActive    = myPosts.some(r => r.board === bd && r.active !== undefined);
+    const activeCount  = hasActive ? activePosts : d.jobs;
+    const closedCount  = hasActive ? (d.jobs - activePosts) : 0;
+    const available    = al !== null ? Math.max(0, al - d.jobs) : null;
+    const conv         = d.views > 0 ? (d.applications/d.views*100).toFixed(1)+'%' : '—';
+    const color        = boardColor(bd);
+    const availHtml    = available === null ? '<span class="zero">—</span>'
+                        : available > 0
+                          ? `<span class="badge badge-blue">${available}</span>`
+                          : `<span class="badge badge-warn">0</span>`;
+    return `<tr>
+      <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
+      <td class="r">${al ? `<strong>${al}</strong>` : '<span class="zero">—</span>'}</td>
+      <td class="r"><strong>${d.jobs}</strong></td>
+      <td class="r"><span class="badge badge-green">${activeCount}</span></td>
+      <td class="r">${closedCount > 0 ? `<span class="badge badge-grey">${closedCount}</span>` : '<span class="zero">—</span>'}</td>
+      <td class="r">${availHtml}</td>
+      <td class="r">${fmtNum(d.views)}</td>
+      <td class="r">${fmtNum(d.applications)}</td>
+      <td class="r">${conv}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderRvJobsList(name) {
+  const tbody = document.getElementById('rv-jobs-body');
+  if (!tbody) return;
+  const myPosts = APP.fPostRecs
+    .filter(r => r.recruiter === name)
+    .sort((a,b) => (b.date||0) - (a.date||0));
+
+  if (!myPosts.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No job postings found for this recruiter.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = myPosts.map(r => {
+    const conv  = r.views > 0 ? (r.applications/r.views*100).toFixed(1)+'%' : '—';
+    const status = r.active === true  ? '<span class="badge badge-green">Active</span>'
+                 : r.active === false ? '<span class="badge badge-grey">Closed</span>'
+                 : '<span class="badge badge-blue">Posted</span>';
+    return `<tr>
+      <td>${r.jobTitle || '—'}</td>
+      <td><span class="board-dot" style="background:${boardColor(r.board)}"></span>${r.board}</td>
+      <td>${r.vertical || '—'}</td>
+      <td>${r.date ? dateFmt(r.date) : '—'}</td>
+      <td class="r">${fmtNum(r.views)}</td>
+      <td class="r">${fmtNum(r.applications)}</td>
+      <td class="r">${conv}</td>
+      <td>${status}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderRvSearchActivity(name) {
+  const tbody = document.getElementById('rv-srch-body');
+  if (!tbody) return;
+  const sbb = APP.recSrchByBoard[name] || {};
+  const rows = Object.entries(sbb).sort((a,b) => b[1].views - a[1].views);
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="2" class="empty-cell">No resume search data found for this recruiter.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(([bd, d]) => `<tr>
+    <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
+    <td class="r">${fmtNum(d.views)}</td>
+  </tr>`).join('');
+}
+
+// ── ALLOCATIONS ───────────────────────────────────────────
+const ALLOC_KEY = 'hv_board_allocations';
+function loadAllocations() {
+  try { return JSON.parse(localStorage.getItem(ALLOC_KEY) || '{}'); } catch { return {}; }
+}
+function saveAllocations() {
+  const alloc = {};
+  document.querySelectorAll('.alloc-input').forEach(inp => {
+    const v = parseInt(inp.value);
+    if (!isNaN(v) && v > 0) alloc[inp.dataset.board] = v;
+  });
+  localStorage.setItem(ALLOC_KEY, JSON.stringify(alloc));
+  closeAllocModal();
+  renderRecruiterView();
+}
+function openAllocModal() {
+  const alloc  = loadAllocations();
+  const boards = [...new Set([...Object.keys(APP.boardPost), ...Object.keys(APP.boardSrch)])].filter(Boolean).sort();
+  document.getElementById('alloc-inputs').innerHTML = boards.map(b => `
+    <div class="alloc-row">
+      <span class="board-dot" style="background:${boardColor(b)}"></span>
+      <label class="alloc-label">${b}</label>
+      <input class="alloc-input" type="number" min="1" placeholder="—"
+             data-board="${b}" value="${alloc[b] || ''}">
+      <span class="alloc-unit">slots</span>
+    </div>`).join('');
+  document.getElementById('alloc-modal').style.display = 'flex';
+}
+function closeAllocModal(e) {
+  if (e && e.target.id !== 'alloc-modal') return;
+  document.getElementById('alloc-modal').style.display = 'none';
+}
+
 // ── EXPORT ────────────────────────────────────────────────
 function exportCSV(type) {
   closeMenu('export-menu');
@@ -1363,6 +1550,37 @@ function exportCSV(type) {
       const boards = new Set([...(p.boards||[]), ...(s.boards||[])]);
       rows.push([r, p.vertical||'', p.jobs||0, p.views||0, p.applications||0, s.views||0, [...boards].join('; ')]);
     });
+  } else if (type === 'rv-portal') {
+    filename = 'my_portal_summary.csv';
+    const name = document.getElementById('rv-recruiter')?.value || '';
+    const alloc = loadAllocations();
+    const pbb = APP.recPostByBoard[name] || {};
+    rows = [['Portal','Recruiter','Allocated Slots','Jobs Posted','Active','Closed','Slots Available','Views','Applications','Conv %']];
+    const myPosts = APP.fPostRecs.filter(r => r.recruiter === name);
+    Object.entries(pbb).sort((a,b)=>b[1].jobs-a[1].jobs).forEach(([bd,d]) => {
+      const al = alloc[bd]||null;
+      const hasActive = myPosts.some(r=>r.board===bd && r.active!==undefined);
+      const activeCount = hasActive ? myPosts.filter(r=>r.board===bd&&r.active===true).length : d.jobs;
+      const closedCount = hasActive ? d.jobs-activeCount : 0;
+      const available = al!==null ? Math.max(0,al-d.jobs) : '';
+      const conv = d.views>0?(d.applications/d.views*100).toFixed(1)+'%':'—';
+      rows.push([bd,name,al||'',d.jobs,activeCount,closedCount,available,d.views,d.applications,conv]);
+    });
+  } else if (type === 'rv-jobs') {
+    filename = 'my_job_postings.csv';
+    const name = document.getElementById('rv-recruiter')?.value || '';
+    rows = [['Job Title','Portal','Vertical','Date Posted','Views','Applications','Conv %','Status']];
+    APP.fPostRecs.filter(r=>r.recruiter===name).sort((a,b)=>(b.date||0)-(a.date||0)).forEach(r => {
+      const conv = r.views>0?(r.applications/r.views*100).toFixed(1)+'%':'—';
+      const status = r.active===true?'Active':r.active===false?'Closed':'Posted';
+      rows.push([r.jobTitle||'',r.board,r.vertical||'',r.date?dateFmt(r.date):'',r.views,r.applications,conv,status]);
+    });
+  } else if (type === 'rv-search') {
+    filename = 'my_resume_activity.csv';
+    const name = document.getElementById('rv-recruiter')?.value || '';
+    rows = [['Source / Board','Resumes Viewed']];
+    const sbb = APP.recSrchByBoard[name] || {};
+    Object.entries(sbb).sort((a,b)=>b[1].views-a[1].views).forEach(([bd,d])=>rows.push([bd,d.views]));
   } else if (type === 'rec-post-matrix') {
     filename = 'recruiter_postings_by_board.csv';
     const SKIP = new Set(['system','total','grand total','','—']);

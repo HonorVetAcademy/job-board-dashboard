@@ -79,6 +79,10 @@
     <div class="hdr-right">
       <span class="file-pill" id="pill-postings">📋 Postings</span>
       <span class="file-pill" id="pill-searches">🔍 Searches</span>
+      <div class="view-toggle">
+        <button class="vtog active" id="vtog-exec" onclick="switchView('exec')">Executive</button>
+        <button class="vtog" id="vtog-rec" onclick="switchView('recruiter')">Recruiter</button>
+      </div>
       <button class="btn btn-ghost sm" onclick="goUpload()">↑ Upload New</button>
       <div class="menu-wrap">
         <button class="btn btn-primary sm" onclick="toggleMenu('export-menu')">Export ▾</button>
@@ -343,7 +347,108 @@
       <div id="insights-grid" class="insights-grid"></div>
     </section>
 
+    <!-- ═══ RECRUITER VIEW ══════════════════════════ -->
+    <div id="recruiter-view" style="display:none">
+
+      <div class="rv-topbar">
+        <div class="rv-picker">
+          <label>Viewing as Recruiter:</label>
+          <select id="rv-recruiter" onchange="renderRecruiterView()">
+            <option value="">— Select a recruiter —</option>
+          </select>
+        </div>
+        <button class="btn btn-outline sm" onclick="openAllocModal()">⚙ Set Portal Allocations</button>
+      </div>
+
+      <!-- Personal KPIs -->
+      <div class="kpi-grid" id="rv-kpis">
+        <p class="rv-empty">Select a recruiter above to load their dashboard.</p>
+      </div>
+
+      <!-- Portal Summary -->
+      <div class="tbl-card rv-section">
+        <div class="tbl-hdr">
+          <span>Portal Activity Summary</span>
+          <span class="tbl-hint">Click "⚙ Set Portal Allocations" to track posting slots per board</span>
+          <button class="btn btn-ghost sm" onclick="exportCSV('rv-portal')">Export CSV</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="dtbl">
+            <thead><tr>
+              <th>Portal</th>
+              <th class="r">Allocated Slots</th>
+              <th class="r">Jobs Posted</th>
+              <th class="r">Active</th>
+              <th class="r">Closed / Filled</th>
+              <th class="r">Slots Available</th>
+              <th class="r">Total Views</th>
+              <th class="r">Applications</th>
+              <th class="r">Conv. Rate</th>
+            </tr></thead>
+            <tbody id="rv-portal-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Job Listings -->
+      <div class="tbl-card rv-section">
+        <div class="tbl-hdr">
+          <span>My Job Postings</span>
+          <button class="btn btn-ghost sm" onclick="exportCSV('rv-jobs')">Export CSV</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="dtbl">
+            <thead><tr>
+              <th>Job Title</th>
+              <th>Portal</th>
+              <th>Vertical</th>
+              <th>Date Posted</th>
+              <th class="r">Views</th>
+              <th class="r">Applications</th>
+              <th class="r">Conv. %</th>
+              <th>Status</th>
+            </tr></thead>
+            <tbody id="rv-jobs-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Resume Activity -->
+      <div class="tbl-card rv-section">
+        <div class="tbl-hdr">
+          <span>My Resume Search Activity</span>
+          <button class="btn btn-ghost sm" onclick="exportCSV('rv-search')">Export CSV</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="dtbl">
+            <thead><tr>
+              <th>Source / Board</th>
+              <th class="r">Resumes Viewed</th>
+            </tr></thead>
+            <tbody id="rv-srch-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /recruiter-view -->
+
   </main>
+
+  <!-- ═══ ALLOCATION MODAL ════════════════════════════ -->
+  <div id="alloc-modal" class="modal-overlay" style="display:none" onclick="closeAllocModal(event)">
+    <div class="modal-box">
+      <div class="modal-hdr">
+        <strong>Portal Posting Allocations</strong>
+        <button class="icon-btn" onclick="closeAllocModal()">✕</button>
+      </div>
+      <p class="modal-hint">Enter the total job posting slots contracted / purchased per portal. Leave blank if unlimited or unknown. These are saved in your browser.</p>
+      <div id="alloc-inputs" class="alloc-grid"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost sm" onclick="closeAllocModal()">Cancel</button>
+        <button class="btn btn-primary sm" onclick="saveAllocations()">Save Allocations</button>
+      </div>
+    </div>
+  </div>
 
   <footer id="dash-footer">
     <span>HonorVet Technologies · Job Board Usage Dashboard</span>
