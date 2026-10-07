@@ -370,6 +370,30 @@ table { border-collapse: collapse; width: 100%; }
 .vtog.active { background: var(--navy); color: #fff; }
 .vtog:hover:not(.active) { background: var(--bg); }
 
+/* ── RECRUITER VIEW PORTAL OVERVIEW ─────────────── */
+.rv-overview {
+  padding: 20px 24px 4px;
+}
+.rv-ov-head {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 14px;
+}
+.rv-ov-title {
+  font-size: 16px; font-weight: 700; color: var(--navy);
+}
+.rv-ov-card2 { margin-top: 12px; }
+.rv-divider {
+  display: flex; align-items: center; gap: 12px;
+  padding: 18px 24px 0;
+}
+.rv-divider span {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--txt3); white-space: nowrap;
+}
+.rv-divider::before, .rv-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
 /* ── RECRUITER VIEW ──────────────────────────────── */
 #recruiter-view { padding: 0; }
 .rv-topbar {
@@ -445,6 +469,32 @@ table { border-collapse: collapse; width: 100%; }
   padding: 14px 20px; border-top: 1px solid var(--border);
   display: flex; justify-content: flex-end; gap: 8px;
 }
+
+/* ── EXEC PASSWORD MODAL ─────────────────────────── */
+.pw-modal-box { width: 380px; }
+.pw-body { padding: 20px 20px 12px; }
+.pw-desc {
+  font-size: 13px; color: var(--txt2); line-height: 1.6;
+  margin-bottom: 18px;
+}
+.pw-label {
+  display: block; font-size: 12px; font-weight: 600;
+  color: var(--navy); margin-bottom: 6px; text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.pw-input {
+  width: 100%; padding: 10px 14px; border: 1.5px solid var(--border);
+  border-radius: 8px; font-size: 14px; font-family: inherit;
+  transition: border-color .15s;
+}
+.pw-input:focus { outline: none; border-color: var(--teal); }
+.pw-error {
+  margin-top: 10px; padding: 8px 12px; border-radius: 6px;
+  background: #FEF2F2; color: #B91C1C; font-size: 12px; font-weight: 500;
+}
+/* Lock icon on Executive toggle while locked */
+#vtog-exec:not(.active)::before { content: ''; }
+.vtog-locked { opacity: .85; }
 
 /* ── RECRUITER TABS ─────────────────────────────── */
 .rec-tabs {

@@ -5,6 +5,31 @@
    Parses exact schema from Job Postings.xlsx + Resume Searches.xlsx
    ═══════════════════════════════════════════════════════════ */
 
+// ── EXECUTIVE PASSWORD ────────────────────────────────────
+// Hash is stored in localStorage (never in code) so nothing leaks to the repo.
+// First time: manager clicks Executive → prompted to CREATE a password.
+// After that: everyone must enter it. Stored hash survives browser sessions.
+// To reset: localStorage.removeItem('hv_exec_hash')  in the console.
+const EXEC_HASH_KEY = 'hv_exec_hash'; // localStorage — persists across sessions
+const EXEC_SES_KEY  = 'hv_exec_auth'; // sessionStorage — cleared on tab close
+
+function getStoredExecHash() {
+  try { return localStorage.getItem(EXEC_HASH_KEY) || null; } catch { return null; }
+}
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function isExecAuthed() {
+  return sessionStorage.getItem(EXEC_SES_KEY) === '1';
+}
+
+function isExecPasswordSet() {
+  return !!getStoredExecHash();
+}
+
 // ── BOARD CONFIG ──────────────────────────────────────────
 const BOARD_CFG = {
   'Dice':           { color: '#F04E23', icon: '🎲' },
@@ -1014,6 +1039,12 @@ function renderTables() {
   renderRecruitersTable();
   renderRecruiterPostMatrix();
   renderRecruiterSrchMatrix();
+  renderExecPortalOverview();           // portal tables in Executive KPI section
+  // Refresh recruiter view overview too if it's active
+  if (document.getElementById('recruiter-view')?.style.display !== 'none') {
+    renderRvPortalOverview();
+    renderRecruiterView();
+  }
 }
 
 function renderPostingsTable() {
@@ -1337,18 +1368,159 @@ function setMode(btn) {
 
 // ── VIEW SWITCHER ─────────────────────────────────────────
 function switchView(view) {
-  const isRec = view === 'recruiter';
-  document.getElementById('vtog-exec').classList.toggle('active', !isRec);
-  document.getElementById('vtog-rec').classList.toggle('active', isRec);
-  // Toggle executive sections
+  if (view === 'exec') {
+    if (!isExecAuthed()) { showExecPasswordModal(); return; }
+    applyExecView();
+  } else {
+    applyRecruiterView();
+  }
+}
+
+function applyExecView() {
+  document.getElementById('vtog-exec').classList.add('active');
+  document.getElementById('vtog-rec').classList.remove('active');
   ['sec-kpis','sec-postings','sec-searches','sec-boards','sec-recruiters','sec-insights'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = isRec ? 'none' : '';
+    if (el) el.style.display = '';
   });
-  document.getElementById('dash-nav').style.display = isRec ? 'none' : '';
-  document.getElementById('filter-bar').style.display = isRec ? 'none' : '';
-  document.getElementById('recruiter-view').style.display = isRec ? 'block' : 'none';
-  if (isRec) populateRvPicker();
+  document.getElementById('dash-nav').style.display = '';
+  document.getElementById('filter-bar').style.display = '';
+  document.getElementById('recruiter-view').style.display = 'none';
+}
+
+function applyRecruiterView() {
+  document.getElementById('vtog-exec').classList.remove('active');
+  document.getElementById('vtog-rec').classList.add('active');
+  ['sec-kpis','sec-postings','sec-searches','sec-boards','sec-recruiters','sec-insights'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  document.getElementById('dash-nav').style.display = 'none';
+  document.getElementById('filter-bar').style.display = 'none';
+  document.getElementById('recruiter-view').style.display = 'block';
+  renderRvPortalOverview();
+  populateRvPicker();
+}
+
+// ── PORTAL OVERVIEW (company-wide, reused in both views) ───
+function renderPortalOverview(postTbodyId, srchTbodyId) {
+  renderOvPostings(postTbodyId);
+  renderOvSearches(srchTbodyId);
+}
+
+function renderRvPortalOverview() {
+  renderPortalOverview('rv-ov-post-body', 'rv-ov-srch-body');
+}
+
+function renderExecPortalOverview() {
+  renderPortalOverview('exec-ov-post-body', 'exec-ov-srch-body');
+}
+
+function renderOvPostings(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const boards = Object.entries(APP.boardPost).sort((a,b) => b[1].jobs - a[1].jobs);
+  if (!boards.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No posting data.</td></tr>'; return; }
+  tbody.innerHTML = boards.map(([bd, d]) => {
+    const conv  = d.views > 0 ? (d.applications/d.views*100).toFixed(1)+'%' : '—';
+    const color = boardColor(bd);
+    return `<tr>
+      <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
+      <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
+      <td class="r">${fmtNum(d.views)}</td>
+      <td class="r">${fmtNum(d.applications)}</td>
+      <td class="r">${conv}</td>
+      <td class="r">${d.spend > 0 ? fmtDol(d.spend) : '<span class="zero">—</span>'}</td>
+      <td class="r">${d.recruiters ? d.recruiters.size : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderOvSearches(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const boards = Object.entries(APP.boardSrch).sort((a,b) => b[1].views - a[1].views);
+  if (!boards.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No resume search data.</td></tr>'; return; }
+  tbody.innerHTML = boards.map(([bd, d]) => {
+    const color     = boardColor(bd);
+    const hasInmail = bd === 'LinkedIn' && d.searches > 0;
+    const aRate     = hasInmail ? (d.contacts/d.searches*100).toFixed(1)+'%' : '<span class="zero">—</span>';
+    return `<tr>
+      <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
+      <td class="r"><strong>${fmtNum(d.views)}</strong></td>
+      <td class="r">${d.contacts > 0 ? fmtNum(d.contacts) : '<span class="zero">—</span>'}</td>
+      <td class="r">${hasInmail ? fmtNum(d.searches)  : '<span class="zero">—</span>'}</td>
+      <td class="r">${hasInmail ? fmtNum(d.responses) : '<span class="zero">—</span>'}</td>
+      <td class="r">${hasInmail ? fmtNum(d.contacts)  : '<span class="zero">—</span>'}</td>
+      <td class="r">${hasInmail ? aRate               : '<span class="zero">—</span>'}</td>
+      <td class="r">${d.recruiters ? d.recruiters.size : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── EXEC PASSWORD MODAL ───────────────────────────────────
+function showExecPasswordModal() {
+  const modal   = document.getElementById('exec-pw-modal');
+  const isSetup = !isExecPasswordSet();
+  if (!modal) return;
+  // Switch between "create" and "enter" modes
+  document.getElementById('exec-pw-modal-title').textContent = isSetup ? '🔒 Create Executive Password' : '🔒 Executive Access';
+  document.getElementById('exec-pw-desc').textContent = isSetup
+    ? 'No password has been set yet. Create one now to protect the Executive view. This is saved only in this browser.'
+    : 'This view contains company-wide performance data and is restricted to authorized personnel.';
+  document.getElementById('exec-pw-confirm-row').style.display = isSetup ? '' : 'none';
+  document.getElementById('exec-pw-btn').textContent = isSetup ? 'Create Password' : 'Unlock →';
+  document.getElementById('exec-pw-input').value = '';
+  document.getElementById('exec-pw-confirm').value = '';
+  document.getElementById('exec-pw-error').style.display = 'none';
+  modal.style.display = 'flex';
+  setTimeout(() => document.getElementById('exec-pw-input').focus(), 80);
+}
+
+function closeExecPasswordModal() {
+  document.getElementById('exec-pw-modal').style.display = 'none';
+}
+
+async function submitExecPassword() {
+  const input   = document.getElementById('exec-pw-input').value;
+  const errEl   = document.getElementById('exec-pw-error');
+  const isSetup = !isExecPasswordSet();
+  if (!input) { errEl.textContent = 'Please enter a password.'; errEl.style.display = 'block'; return; }
+
+  if (isSetup) {
+    // Create new password
+    const confirm = document.getElementById('exec-pw-confirm').value;
+    if (input !== confirm) {
+      errEl.textContent = 'Passwords do not match. Please try again.';
+      errEl.style.display = 'block';
+      document.getElementById('exec-pw-confirm').value = '';
+      return;
+    }
+    if (input.length < 6) {
+      errEl.textContent = 'Password must be at least 6 characters.';
+      errEl.style.display = 'block';
+      return;
+    }
+    const hash = await sha256(input);
+    localStorage.setItem(EXEC_HASH_KEY, hash);
+    sessionStorage.setItem(EXEC_SES_KEY, '1');
+    closeExecPasswordModal();
+    applyExecView();
+  } else {
+    // Verify existing password
+    const hash   = await sha256(input);
+    const stored = getStoredExecHash();
+    if (hash === stored) {
+      sessionStorage.setItem(EXEC_SES_KEY, '1');
+      closeExecPasswordModal();
+      applyExecView();
+    } else {
+      errEl.textContent = 'Incorrect password. Please try again.';
+      errEl.style.display = 'block';
+      document.getElementById('exec-pw-input').value = '';
+      document.getElementById('exec-pw-input').focus();
+    }
+  }
 }
 
 function populateRvPicker() {
@@ -1549,6 +1721,20 @@ function exportCSV(type) {
       const s = APP.recSrch[r] || {};
       const boards = new Set([...(p.boards||[]), ...(s.boards||[])]);
       rows.push([r, p.vertical||'', p.jobs||0, p.views||0, p.applications||0, s.views||0, [...boards].join('; ')]);
+    });
+  } else if (type === 'rv-overview') {
+    filename = 'portal_overview.csv';
+    rows = [['Type','Portal','Jobs Posted','Views','Applications','Conv%','Spend','Resumes Viewed','Contacts/Unlocks','InMails Sent','Responses','Accepted','Accept Rate','Active Recruiters']];
+    // Posting rows
+    Object.entries(APP.boardPost).sort((a,b)=>b[1].jobs-a[1].jobs).forEach(([bd,d]) => {
+      const conv = d.views>0?(d.applications/d.views*100).toFixed(1)+'%':'';
+      rows.push(['Postings',bd,d.jobs,d.views,d.applications,conv,d.spend||0,'','','','','',d.recruiters?d.recruiters.size:'']);
+    });
+    // Search rows
+    Object.entries(APP.boardSrch).sort((a,b)=>b[1].views-a[1].views).forEach(([bd,d]) => {
+      const hasInmail = bd==='LinkedIn' && d.searches>0;
+      const aRate = hasInmail?(d.contacts/d.searches*100).toFixed(1)+'%':'';
+      rows.push(['Resume Search',bd,'','','','','',d.views,d.contacts||0,hasInmail?d.searches:'',hasInmail?d.responses:'',hasInmail?d.contacts:'',aRate,d.recruiters?d.recruiters.size:'']);
     });
   } else if (type === 'rv-portal') {
     filename = 'my_portal_summary.csv';
@@ -1834,6 +2020,12 @@ function readWorkbook(file) {
 function showDashboard() {
   document.getElementById('upload-screen').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
+  // Default to Recruiter view; Executive requires password
+  if (isExecAuthed()) {
+    applyExecView();   // re-authenticated in same session
+  } else {
+    applyRecruiterView();
+  }
   initScrollSpy();
   initNavClicks();
 }
