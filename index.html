@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Board Usage Dashboard — HonorVet Technologies</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════ UPLOAD SCREEN ═══ -->
+<div id="upload-screen">
+  <div class="upload-hero">
+    <div class="upload-brand">
+      <div class="brand-mark">HV</div>
+      <div class="brand-words">
+        <div class="brand-name">HonorVet Technologies</div>
+        <div class="brand-product">Job Board Usage Dashboard</div>
+      </div>
+    </div>
+
+    <h1 class="upload-title">Weekly Job Board Report</h1>
+    <p class="upload-desc">Upload both Excel files below. All charts, KPIs, and insights are generated automatically from your actual data — nothing is hardcoded.</p>
+
+    <div class="drop-zones">
+      <div class="drop-zone" id="drop-postings"
+           ondragover="ev_DragOver(event,'postings')"
+           ondragleave="ev_DragLeave(event,'postings')"
+           ondrop="ev_Drop(event,'postings')">
+        <div class="dz-icon">📋</div>
+        <div class="dz-title">Job Postings</div>
+        <div class="dz-hint"><strong>Job Postings.xlsx</strong></div>
+        <div class="dz-status" id="st-postings"><span class="dot dot-idle"></span> No file selected</div>
+        <input type="file" id="fi-postings" accept=".xlsx,.xls" hidden onchange="ev_FileInput(event,'postings')">
+        <button class="btn btn-outline sm" onclick="document.getElementById('fi-postings').click()">Choose File</button>
+      </div>
+
+      <div class="drop-zone" id="drop-searches"
+           ondragover="ev_DragOver(event,'searches')"
+           ondragleave="ev_DragLeave(event,'searches')"
+           ondrop="ev_Drop(event,'searches')">
+        <div class="dz-icon">🔍</div>
+        <div class="dz-title">Resume Searches</div>
+        <div class="dz-hint"><strong>Resume Searches.xlsx</strong></div>
+        <div class="dz-status" id="st-searches"><span class="dot dot-idle"></span> No file selected</div>
+        <input type="file" id="fi-searches" accept=".xlsx,.xls" hidden onchange="ev_FileInput(event,'searches')">
+        <button class="btn btn-outline sm" onclick="document.getElementById('fi-searches').click()">Choose File</button>
+      </div>
+    </div>
+
+    <div id="upload-error" class="error-banner" style="display:none"></div>
+
+    <div id="upload-progress" style="display:none">
+      <div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div>
+      <div class="prog-label" id="prog-label">Processing…</div>
+    </div>
+
+    <button id="btn-generate" class="btn btn-primary lg" disabled onclick="generateDashboard()">
+      ▶&nbsp; Generate Dashboard
+    </button>
+    <p class="upload-privacy">🔒 Processed entirely in your browser — no data leaves your device.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ DASHBOARD ════════ -->
+<div id="dashboard" style="display:none">
+
+  <!-- HEADER -->
+  <header id="dash-header">
+    <div class="hdr-left">
+      <div class="brand-mark sm">HV</div>
+      <div>
+        <div class="hdr-title">Job Board Usage Dashboard</div>
+        <div class="hdr-sub" id="hdr-period">—</div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <span class="file-pill" id="pill-postings">📋 Postings</span>
+      <span class="file-pill" id="pill-searches">🔍 Searches</span>
+      <button class="btn btn-ghost sm" onclick="goUpload()">↑ Upload New</button>
+      <div class="menu-wrap">
+        <button class="btn btn-primary sm" onclick="toggleMenu('export-menu')">Export ▾</button>
+        <div class="menu-list" id="export-menu">
+          <div class="menu-item" onclick="exportPDF()">📄 PDF Report</div>
+          <div class="menu-sep"></div>
+          <div class="menu-item" onclick="exportCSV('postings')">📋 Postings CSV</div>
+          <div class="menu-item" onclick="exportCSV('searches')">🔍 Searches CSV</div>
+          <div class="menu-item" onclick="exportCSV('recruiter')">👤 Recruiter CSV</div>
+          <div class="menu-sep"></div>
+          <div class="menu-item" onclick="window.print()">🖨️ Print View</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- NAV -->
+  <nav id="dash-nav">
+    <a class="nav-tab active" data-target="sec-kpis">Overview</a>
+    <a class="nav-tab" data-target="sec-postings">Job Postings</a>
+    <a class="nav-tab" data-target="sec-searches">Resume Activity</a>
+    <a class="nav-tab" data-target="sec-boards">Board Details</a>
+    <a class="nav-tab" data-target="sec-recruiters">Recruiters</a>
+    <a class="nav-tab" data-target="sec-insights">Insights</a>
+  </nav>
+
+  <!-- FILTERS -->
+  <div id="filter-bar">
+    <div class="filter-row">
+      <div class="fg">
+        <label>From</label>
+        <input type="date" id="flt-from" onchange="applyFilters()">
+      </div>
+      <div class="fg">
+        <label>To</label>
+        <input type="date" id="flt-to" onchange="applyFilters()">
+      </div>
+      <div class="fg">
+        <label>Board</label>
+        <select id="flt-board" onchange="applyFilters()"><option value="">All Boards</option></select>
+      </div>
+      <div class="fg">
+        <label>Vertical</label>
+        <select id="flt-vertical" onchange="applyFilters()"><option value="">All Verticals</option></select>
+      </div>
+      <div class="fg">
+        <label>Recruiter</label>
+        <select id="flt-recruiter" onchange="applyFilters()"><option value="">All Recruiters</option></select>
+      </div>
+      <button class="btn btn-ghost sm" onclick="resetFilters()">✕ Reset</button>
+      <div class="flt-count" id="flt-count"></div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <main id="dash-main">
+
+    <!-- KPIs ─────────────────────────────────────── -->
+    <section id="sec-kpis" class="dash-sec">
+      <div class="sec-head">
+        <h2>Executive Summary</h2>
+        <span class="sec-sub" id="kpi-lbl">All data</span>
+      </div>
+      <div class="kpi-grid" id="kpi-grid"></div>
+    </section>
+
+    <!-- JOB POSTINGS ─────────────────────────────── -->
+    <section id="sec-postings" class="dash-sec">
+      <div class="sec-head"><h2>Job Posting Activity</h2></div>
+      <div class="chart-row">
+        <div class="chart-card">
+          <div class="chart-hdr">
+            <span>Jobs Posted by Board</span>
+            <button class="icon-btn" onclick="dlChart('chart-post-bar')">⬇</button>
+          </div>
+          <div class="chart-body"><canvas id="chart-post-bar"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-hdr">
+            <span>Posting Share</span>
+            <button class="icon-btn" onclick="dlChart('chart-post-pie')">⬇</button>
+          </div>
+          <div class="chart-body"><canvas id="chart-post-pie"></canvas></div>
+        </div>
+      </div>
+      <div class="chart-card wide">
+        <div class="chart-hdr">
+          <span>Posting Trends Over Time</span>
+          <div class="toggle-grp">
+            <button class="chip active" data-series="post" data-mode="daily" onclick="setMode(this)">Daily</button>
+            <button class="chip" data-series="post" data-mode="weekly" onclick="setMode(this)">Weekly</button>
+            <button class="icon-btn" onclick="dlChart('chart-post-trend')">⬇</button>
+          </div>
+        </div>
+        <div class="chart-body tall"><canvas id="chart-post-trend"></canvas></div>
+      </div>
+      <div class="chart-card wide">
+        <div class="chart-hdr"><span>Views &amp; Applications by Board</span></div>
+        <div class="chart-body"><canvas id="chart-post-metrics"></canvas></div>
+      </div>
+    </section>
+
+    <!-- RESUME ACTIVITY ──────────────────────────── -->
+    <section id="sec-searches" class="dash-sec">
+      <div class="sec-head"><h2>Resume Search &amp; View Activity</h2></div>
+      <div class="chart-row">
+        <div class="chart-card">
+          <div class="chart-hdr">
+            <span>Activity by Source</span>
+            <button class="icon-btn" onclick="dlChart('chart-srch-bar')">⬇</button>
+          </div>
+          <div class="chart-body"><canvas id="chart-srch-bar"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-hdr">
+            <span>Activity Share</span>
+            <button class="icon-btn" onclick="dlChart('chart-srch-pie')">⬇</button>
+          </div>
+          <div class="chart-body"><canvas id="chart-srch-pie"></canvas></div>
+        </div>
+      </div>
+      <div class="chart-card wide">
+        <div class="chart-hdr">
+          <span>Resume View Trends</span>
+          <div class="toggle-grp">
+            <button class="chip active" data-series="srch" data-mode="daily" onclick="setMode(this)">Daily</button>
+            <button class="chip" data-series="srch" data-mode="weekly" onclick="setMode(this)">Weekly</button>
+            <button class="icon-btn" onclick="dlChart('chart-srch-trend')">⬇</button>
+          </div>
+        </div>
+        <div class="chart-body tall"><canvas id="chart-srch-trend"></canvas></div>
+      </div>
+      <div class="chart-card wide">
+        <div class="chart-hdr"><span>LinkedIn InMail Performance</span></div>
+        <div class="chart-body"><canvas id="chart-inmail"></canvas></div>
+      </div>
+    </section>
+
+    <!-- BOARD DETAILS ────────────────────────────── -->
+    <section id="sec-boards" class="dash-sec">
+      <div class="sec-head"><h2>Board-Level Performance</h2></div>
+
+      <div class="tbl-card">
+        <div class="tbl-hdr">
+          <span>Posting Activity by Board</span>
+          <button class="btn btn-ghost sm" onclick="exportCSV('postings-tbl')">Export CSV</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="dtbl" id="dtbl-postings">
+            <thead><tr>
+              <th>Board</th>
+              <th class="r">Jobs Posted</th>
+              <th class="r">Total Views</th>
+              <th class="r">Applications</th>
+              <th class="r">Avg Views/Job</th>
+              <th class="r">Conv. Rate</th>
+              <th>Top Vertical</th>
+              <th class="r">Spend ($)</th>
+            </tr></thead>
+            <tbody id="dtbl-postings-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tbl-card">
+        <div class="tbl-hdr">
+          <span>Resume Activity by Source</span>
+          <button class="btn btn-ghost sm" onclick="exportCSV('searches-tbl')">Export CSV</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="dtbl" id="dtbl-searches">
+            <thead><tr>
+              <th>Source / Board</th>
+              <th class="r">Searches / Sends</th>
+              <th class="r">Views / Fetches</th>
+              <th class="r">Contacts / Unlocks</th>
+              <th class="r">Responses</th>
+              <th class="r">Resp. Rate</th>
+              <th>Active Recruiters</th>
+            </tr></thead>
+            <tbody id="dtbl-searches-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- RECRUITERS ───────────────────────────────── -->
+    <section id="sec-recruiters" class="dash-sec">
+      <div class="sec-head"><h2>Recruiter Activity</h2></div>
+      <div class="chart-row">
+        <div class="chart-card" style="flex:1.6">
+          <div class="chart-hdr">
+            <span>Postings by Recruiter</span>
+            <button class="icon-btn" onclick="dlChart('chart-rec-post')">⬇</button>
+          </div>
+          <div class="chart-body tall"><canvas id="chart-rec-post"></canvas></div>
+        </div>
+        <div class="chart-card" style="flex:1">
+          <div class="chart-hdr">
+            <span>Resumes Viewed by Recruiter</span>
+            <button class="icon-btn" onclick="dlChart('chart-rec-srch')">⬇</button>
+          </div>
+          <div class="chart-body tall"><canvas id="chart-rec-srch"></canvas></div>
+        </div>
+      </div>
+      <div class="tbl-card">
+        <div class="tbl-hdr">
+          <span>Recruiter Performance Summary</span>
+          <button class="btn btn-ghost sm" onclick="exportCSV('recruiter-tbl')">Export CSV</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="dtbl" id="dtbl-recruiters">
+            <thead><tr>
+              <th>Recruiter</th>
+              <th>Vertical</th>
+              <th class="r">Jobs Posted</th>
+              <th class="r">Views</th>
+              <th class="r">Applications</th>
+              <th class="r">Resumes Viewed</th>
+              <th>Boards Used</th>
+            </tr></thead>
+            <tbody id="dtbl-recruiters-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- INSIGHTS ─────────────────────────────────── -->
+    <section id="sec-insights" class="dash-sec">
+      <div class="sec-head">
+        <h2>Automated Insights &amp; Recommendations</h2>
+        <span class="sec-sub">Generated from your uploaded data</span>
+      </div>
+      <div id="insights-grid" class="insights-grid"></div>
+    </section>
+
+  </main>
+
+  <footer id="dash-footer">
+    <span>HonorVet Technologies · Job Board Usage Dashboard</span>
+    <span id="footer-ts"></span>
+  </footer>
+</div>
+
+<!-- LOADING ─────────────────────────────────────── -->
+<div id="loading" style="display:none">
+  <div class="spinner"></div>
+  <div class="loading-txt" id="loading-txt">Processing data…</div>
+</div>
+
+<!-- LIBS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
