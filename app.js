@@ -81,6 +81,7 @@ const APP = {
   recPostByBoard: {},  // { recruiter: { board: { jobs, views, applications } } }
   recSrchByBoard: {},  // { recruiter: { board: { views } } }
   // Time series (keyed by 'YYYY-MM-DD')
+  vivianByRec: {},  // { recruiter: { jobs, applications, submissions } } from Vivian Analysis sheet
   postByDate: {},
   srchByDate: {},
   // Filter options
@@ -141,7 +142,7 @@ function numVal(v) {
 }
 function strVal(v) { return v == null ? '' : String(v).trim(); }
 function cleanName(v) {
-  return strVal(v).replace(/^[ \t]+|[ \t]+$/g,'').replace(/\s+/,' ');
+  return strVal(v).replace(/^[ \t]+|[ \t]+$/g,'').replace(/\s+/g,' ');
 }
 
 // ── SHEET PARSER HELPERS ──────────────────────────────────
@@ -328,16 +329,45 @@ function parseVivianPosting(wb) {
       jobTitle,
       positionId: id,
       views: 0,
-      applications: stats.inbound + stats.proposal,  // Inbound + Proposal = total applicants
+      applications: stats.inbound + stats.proposal,  // Per-job display only — board/recruiter totals use APP.vivianByRec instead
       inbound: stats.inbound,
-      proposal: stats.proposal,       // Proposal = submissions to client
+      proposal: stats.proposal,
       active: true,
       spend: 0,
     };
   }).filter(Boolean).filter(r => r.jobTitle);
 }
 
+// Parse "Vivian Analysis" sheet — authoritative per-recruiter totals
+// Columns: Posted By | Number Of Jobs | Total Candidates | Submission
+function parseVivianAnalysis(wb) {
+  const rows = sheetToArray(wb, 'Vivian Analysis');
+  if (!rows || rows.length < 2) return {};
+  const hdr = findHeader(rows, ['Posted By', 'Number Of Jobs']);
+  if (!hdr) return {};
+  const map = {};
+  for (const r of dataRows(rows, hdr)) {
+    const name = strVal(r['Posted By'] || '').trim();
+    if (!name || name.toLowerCase().includes('grand total')) continue;
+    const recruiter = cleanName(name);
+    if (!recruiter) continue;
+    map[recruiter] = {
+      jobs:         numVal(r['Number Of Jobs']),
+      applications: numVal(r['Total Candidates']),
+      submissions:  numVal(r['Submission']),
+    };
+  }
+  return map;
+}
+
 function parseAllPostings(wb) {
+  APP.vivianByRec = parseVivianAnalysis(wb);  // Authoritative per-recruiter Vivian totals
+  // Raw totals direct from Vivian_Candidates sheet (not via per-job join, which can miss rows)
+  const candStats = parseVivianCandidateStats(wb);
+  APP.vivianCandTotals = Object.values(candStats).reduce(
+    (acc, s) => ({ inbound: acc.inbound + s.inbound, proposal: acc.proposal + s.proposal }),
+    { inbound: 0, proposal: 0 }
+  );
   const all = [
     ...parseDicePosting(wb),
     ...parseLinkedInPosting(wb),
@@ -633,7 +663,8 @@ function aggregate() {
     if (!APP.boardPost[b]) APP.boardPost[b] = { jobs: 0, views: 0, applications: 0, spend: 0, recruiters: new Set(), verticals: new Set(), activeJobs: 0, minDate: null, maxDate: null };
     APP.boardPost[b].jobs++;
     APP.boardPost[b].views += r.views;
-    APP.boardPost[b].applications += r.applications;
+    // Vivian applications total comes from the Vivian Analysis sheet correction below, not per-job sum
+    if (b !== 'Vivian') APP.boardPost[b].applications += r.applications;
     APP.boardPost[b].spend += r.spend || 0;
     if (r.recruiter) APP.boardPost[b].recruiters.add(r.recruiter);
     if (r.vertical)  APP.boardPost[b].verticals.add(r.vertical);
@@ -647,14 +678,14 @@ function aggregate() {
       if (!APP.recPost[r.recruiter]) APP.recPost[r.recruiter] = { jobs: 0, views: 0, applications: 0, boards: new Set(), vertical: r.vertical || '' };
       APP.recPost[r.recruiter].jobs++;
       APP.recPost[r.recruiter].views += r.views;
-      APP.recPost[r.recruiter].applications += r.applications;
+      if (b !== 'Vivian') APP.recPost[r.recruiter].applications += r.applications;
       APP.recPost[r.recruiter].boards.add(b);
       // Recruiter × Board breakdown
       if (!APP.recPostByBoard[r.recruiter]) APP.recPostByBoard[r.recruiter] = {};
       if (!APP.recPostByBoard[r.recruiter][b]) APP.recPostByBoard[r.recruiter][b] = { jobs:0, views:0, applications:0 };
       APP.recPostByBoard[r.recruiter][b].jobs++;
       APP.recPostByBoard[r.recruiter][b].views += r.views;
-      APP.recPostByBoard[r.recruiter][b].applications += r.applications;
+      if (b !== 'Vivian') APP.recPostByBoard[r.recruiter][b].applications += r.applications;
     }
 
     if (r.date) {
@@ -698,6 +729,17 @@ function aggregate() {
       APP.srchByDate[dk].total += r.views || 1;
       APP.srchByDate[dk].byBoard[b] = (APP.srchByDate[dk].byBoard[b] || 0) + (r.views || 1);
     }
+  }
+
+  // Apply Vivian Analysis corrections — authoritative source for applicant & submission counts.
+  // Only applied for recruiters whose Vivian postings survived the current filter, so filtering
+  // by recruiter/date still narrows the Vivian total rather than always showing the full 73.
+  for (const [name, va] of Object.entries(APP.vivianByRec || {})) {
+    const hasFilteredVivianPosts = APP.recPostByBoard[name] && APP.recPostByBoard[name]['Vivian'];
+    if (!hasFilteredVivianPosts) continue;
+    if (APP.boardPost['Vivian']) APP.boardPost['Vivian'].applications += va.applications;
+    if (APP.recPost[name]) APP.recPost[name].applications += va.applications;
+    APP.recPostByBoard[name]['Vivian'].applications += va.applications;
   }
 }
 
@@ -779,18 +821,21 @@ function getBoardKpis(board) {
   const bSrch = APP.boardSrch[board] || {};
 
   if (board === 'Vivian') {
-    const vivPosts   = APP.fPostRecs.filter(r => r.board === 'Vivian');
     const vivCands   = APP.fSrchRecs.filter(r => r.board === 'Vivian');
-    const inbound    = vivPosts.reduce((s, r) => s + (r.inbound  || 0), 0);
-    const proposal   = vivPosts.reduce((s, r) => s + (r.proposal || 0), 0);
+    // Inbound/Proposal: raw totals direct from Vivian_Candidates sheet (not the per-job join)
+    const { inbound, proposal } = APP.vivianCandTotals || { inbound: 0, proposal: 0 };
+    const applicants = inbound + proposal;  // = Vivian Analysis "Total Candidates" grand total
+    const submissions = Object.values(APP.vivianByRec || {}).reduce((s, v) => s + (v.submissions || 0), 0);
     const premCreds  = vivCands.filter(r => r.isPremium).reduce((s, r) => s + (r.views || 0), 0);
     const stdCreds   = vivCands.filter(r => !r.isPremium).reduce((s, r) => s + (r.views || 0), 0);
     const totalCreds = premCreds + stdCreds;
     const totalResumes = vivCands.length;
     return [
       { label: 'Jobs Posted',           value: fmtNum(bPost.jobs || 0),   icon: '📋', cls: 'c-navy'    },
+      { label: 'Total Applicants',      value: fmtNum(applicants),         icon: '🧑‍💼', cls: 'c-success' },
       { label: 'Inbound Candidates',    value: fmtNum(inbound),            icon: '📥', cls: 'c-teal'    },
       { label: 'Proposal Candidates',   value: fmtNum(proposal),           icon: '📤', cls: 'c-sky'     },
+      { label: 'Submissions',           value: fmtNum(submissions),        icon: '📨', cls: 'c-purple'  },
       { label: 'Premium Credits Used',  value: fmtNum(premCreds),          icon: '⭐', cls: 'c-purple'  },
       { label: 'Standard Credits Used', value: fmtNum(stdCreds),           icon: '📋', cls: 'c-orange'  },
       { label: 'Total Credits Used',    value: fmtNum(totalCreds),         icon: '🔢', cls: 'c-success'  },
@@ -1658,8 +1703,10 @@ function renderRvCompanyPostings(wrapId) {
                       : available > 0
                         ? `<span class="badge badge-blue">${available}</span>`
                         : `<span class="badge badge-warn">0</span>`;
-      // Submissions come from JobDiva Resumes (Submission column) tracked in boardSrch
-      const submissions = (APP.boardSrch[bd] || {}).submissions || 0;
+      // Vivian submissions from Vivian Analysis sheet; others from JobDiva Resumes
+      const submissions = bd === 'Vivian'
+        ? Object.values(APP.vivianByRec || {}).reduce((s, v) => s + (v.submissions || 0), 0)
+        : (APP.boardSrch[bd] || {}).submissions || 0;
       return `<tr>
         <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
         <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
@@ -1936,8 +1983,10 @@ function renderRvPortalTable(name) {
                      : available > 0
                        ? `<span class="badge badge-blue">${available}</span>`
                        : `<span class="badge badge-warn">0</span>`;
-    // Submissions from JobDiva Resumes (Submission column) per recruiter × board
-    const submissions = ((APP.recSrchByBoard[name] || {})[bd] || {}).submissions || 0;
+    // Vivian submissions from Vivian Analysis sheet; others from JobDiva Resumes (Submission column)
+    const submissions = bd === 'Vivian'
+      ? ((APP.vivianByRec || {})[name] || {}).submissions || 0
+      : ((APP.recSrchByBoard[name] || {})[bd] || {}).submissions || 0;
     const submissionsHtml = submissions > 0
       ? `<strong>${fmtNum(submissions)}</strong>`
       : '<span class="zero">—</span>';
