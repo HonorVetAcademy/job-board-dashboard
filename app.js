@@ -606,6 +606,52 @@ function parseSignalHire(wb) {
   }).filter(Boolean);
 }
 
+// Parse "Vivian Analysis" sheet (Resume Searches.xlsx) — authoritative Premium/Standard
+// credits breakdown. Distinct from the "Vivian Analysis" sheet in Job Postings.xlsx.
+// Layout: col0=Type ('Inbound'/'Proposal', only on the first row of each block, or a
+// '... Total'/'Grand Total' marker), col1=RecruiterName (forward-filled — blank means
+// "same recruiter as the row above"), col4-6=Premium (Credit Used, Candidates, Submission),
+// col7-9=Standard (same three). The Premium/Standard header text repeats for both sections,
+// so this reads by raw column index rather than by name to avoid one overwriting the other.
+function parseVivianCreditsAnalysis(wb) {
+  const rows = sheetToArray(wb, 'Vivian Analysis');
+  if (!rows) return null;
+  const byRecruiter = {};
+  let currentRecruiter = '';
+  let grandTotal = null;
+  for (const row of rows) {
+    const marker = strVal(row[0] || '').trim();
+    if (marker.toLowerCase() === 'grand total') {
+      grandTotal = {
+        premiumCreditUsed: numVal(row[4]), premiumCandidates: numVal(row[5]), premiumSubmission: numVal(row[6]),
+        standardCreditUsed: numVal(row[7]), standardCandidates: numVal(row[8]), standardSubmission: numVal(row[9]),
+      };
+      break;
+    }
+    if (marker.toLowerCase().includes('total')) continue;  // "Inbound Total" / "Proposal Total" subtotal rows
+
+    const name = strVal(row[1] || '').trim();
+    if (name) currentRecruiter = cleanName(name);
+    if (!currentRecruiter) continue;
+
+    if (!byRecruiter[currentRecruiter]) {
+      byRecruiter[currentRecruiter] = {
+        premiumCreditUsed: 0, premiumCandidates: 0, premiumSubmission: 0,
+        standardCreditUsed: 0, standardCandidates: 0, standardSubmission: 0,
+      };
+    }
+    const d = byRecruiter[currentRecruiter];
+    d.premiumCreditUsed   += numVal(row[4]);
+    d.premiumCandidates   += numVal(row[5]);
+    d.premiumSubmission   += numVal(row[6]);
+    d.standardCreditUsed  += numVal(row[7]);
+    d.standardCandidates  += numVal(row[8]);
+    d.standardSubmission  += numVal(row[9]);
+  }
+  if (!grandTotal) return null;
+  return { grandTotal, byRecruiter };
+}
+
 function parseVivianCandidates(wb) {
   const rows = sheetToArray(wb, 'Vivian Candidates');
   if (!rows) return [];
@@ -639,6 +685,7 @@ function parseVivianCandidates(wb) {
 }
 
 function parseAllSearches(wb) {
+  APP.vivianCredits = parseVivianCreditsAnalysis(wb);  // Authoritative Premium/Standard credits
   // Use JobDiva Resumes (individual) as primary source for per-date data
   // Supplement with board-specific summaries
   const jdResumes = parseJobDivaResumes(wb);
@@ -721,7 +768,10 @@ function aggregate() {
     const b = r.board;
     if (!APP.boardSrch[b]) APP.boardSrch[b] = { searches: 0, views: 0, contacts: 0, responses: 0, submissions: 0, recruiters: new Set(), minDate: null, maxDate: null };
     APP.boardSrch[b].searches    += r.searches   || 0;
-    APP.boardSrch[b].views       += r.views      || 0;
+    // Vivian credits-used total comes from the "Vivian Analysis" sheet correction below —
+    // the raw "Vivian Candidates" sheet has the same scope mismatch as Vivian_Candidates did
+    // for applications (its Standard-tier total is 1,186 vs the verified pivot's 138).
+    if (b !== 'Vivian') APP.boardSrch[b].views += r.views || 0;
     APP.boardSrch[b].contacts    += r.contacts   || 0;
     APP.boardSrch[b].responses   += r.responses  || 0;
     APP.boardSrch[b].submissions += r.submission || 0;
@@ -733,13 +783,13 @@ function aggregate() {
 
     if (r.recruiter) {
       if (!APP.recSrch[r.recruiter]) APP.recSrch[r.recruiter] = { views: 0, submissions: 0, boards: new Set() };
-      APP.recSrch[r.recruiter].views       += r.views      || 0;
+      if (b !== 'Vivian') APP.recSrch[r.recruiter].views += r.views || 0;
       APP.recSrch[r.recruiter].submissions += r.submission || 0;
       APP.recSrch[r.recruiter].boards.add(b);
       // Recruiter × Board breakdown
       if (!APP.recSrchByBoard[r.recruiter]) APP.recSrchByBoard[r.recruiter] = {};
       if (!APP.recSrchByBoard[r.recruiter][b]) APP.recSrchByBoard[r.recruiter][b] = { views: 0, submissions: 0 };
-      APP.recSrchByBoard[r.recruiter][b].views       += r.views      || 0;
+      if (b !== 'Vivian') APP.recSrchByBoard[r.recruiter][b].views += r.views || 0;
       APP.recSrchByBoard[r.recruiter][b].submissions += r.submission || 0;
     }
 
@@ -772,6 +822,26 @@ function aggregate() {
       if (!APP.recPostByBoard[name]['Vivian']) APP.recPostByBoard[name]['Vivian'] = { jobs: 0, views: 0, applications: 0, submissions: 0 };
       APP.recPostByBoard[name]['Vivian'].applications += va.applications;
       APP.recPostByBoard[name]['Vivian'].submissions  += va.submissions;
+    }
+  }
+
+  // Apply Vivian credits-used correction — authoritative source for "Candidates Sourced"
+  // (credits used). Same reasoning as above: the raw "Vivian Candidates" sheet's Standard
+  // tier is a differently-scoped dataset, not a per-recruiter subset of the verified pivot.
+  if (APP.boardSrch['Vivian']) {
+    const vivRecruiterFilter = document.getElementById('flt-recruiter')?.value || '';
+    for (const [name, vc] of Object.entries((APP.vivianCredits || {}).byRecruiter || {})) {
+      if (vivRecruiterFilter && name !== vivRecruiterFilter) continue;
+      const creditUsed = (vc.premiumCreditUsed || 0) + (vc.standardCreditUsed || 0);
+      APP.boardSrch['Vivian'].views += creditUsed;
+
+      if (!APP.recSrch[name]) APP.recSrch[name] = { views: 0, submissions: 0, boards: new Set() };
+      APP.recSrch[name].views += creditUsed;
+      APP.recSrch[name].boards.add('Vivian');
+
+      if (!APP.recSrchByBoard[name]) APP.recSrchByBoard[name] = {};
+      if (!APP.recSrchByBoard[name]['Vivian']) APP.recSrchByBoard[name]['Vivian'] = { views: 0, submissions: 0 };
+      APP.recSrchByBoard[name]['Vivian'].views += creditUsed;
     }
   }
 }
@@ -854,17 +924,20 @@ function getBoardKpis(board) {
   const bSrch = APP.boardSrch[board] || {};
 
   if (board === 'Vivian') {
-    const vivCands   = APP.fSrchRecs.filter(r => r.board === 'Vivian');
-    // Applicants/Submissions: from the "Vivian Analysis" sheet pivot (scoped to the same
-    // posting week as Jobs Posted). The raw Vivian_Candidates sheet covers a much larger,
-    // differently-scoped dataset (2,891 inbound+proposal vs this pivot's 73), so it is NOT
-    // used here — there's no reliable per-board Inbound/Proposal split at this pivot's scope.
+    // Applicants/Submissions: from the Job Postings.xlsx "Vivian Analysis" sheet pivot
+    // (scoped to the same posting week as Jobs Posted). The raw Vivian_Candidates sheet
+    // covers a much larger, differently-scoped dataset (2,891 inbound+proposal vs this
+    // pivot's 73), so it is NOT used — there's no reliable Inbound/Proposal split at scope.
     const applicants   = bPost.applications || 0;
     const submissions  = Object.values(APP.vivianByRec || {}).reduce((s, v) => s + (v.submissions || 0), 0);
-    const premCreds  = vivCands.filter(r => r.isPremium).reduce((s, r) => s + (r.views || 0), 0);
-    const stdCreds   = vivCands.filter(r => !r.isPremium).reduce((s, r) => s + (r.views || 0), 0);
-    const totalCreds = premCreds + stdCreds;
-    const totalResumes = vivCands.length;
+    // Premium/Standard credits: from the Resume Searches.xlsx "Vivian Analysis" sheet's Grand
+    // Total row. The raw "Vivian Candidates" sheet has the same kind of scope mismatch as
+    // above — e.g. Standard Credit Used comes out to 1,186 there vs this pivot's verified 138.
+    const vc = (APP.vivianCredits || {}).grandTotal || {};
+    const premCreds     = vc.premiumCreditUsed || 0;
+    const stdCreds      = vc.standardCreditUsed || 0;
+    const totalCreds    = premCreds + stdCreds;
+    const totalResumes  = (vc.premiumCandidates || 0) + (vc.standardCandidates || 0);
     return [
       { label: 'Jobs Posted',           value: fmtNum(bPost.jobs || 0),   icon: '📋', cls: 'c-navy'    },
       { label: 'Total Applicants',      value: fmtNum(applicants),         icon: '🧑‍💼', cls: 'c-success' },
@@ -1264,7 +1337,6 @@ function renderVivianDetail() {
   if (!inner) return;
 
   const posts = APP.fPostRecs.filter(r => r.board === 'Vivian');
-  const cands = APP.fSrchRecs.filter(r => r.board === 'Vivian');
   const color = boardColor('Vivian');
   const alloc = loadAllocations();
   const al    = alloc['Vivian'] || null;
@@ -1279,16 +1351,21 @@ function renderVivianDetail() {
     <button class="btn btn-ghost sm" style="margin-left:auto" onclick="openAllocModal()">Set Allocations</button>
   </div>`;
 
-  // ── Table 1: Vivian Job Postings ──
+  // ── Table 1: Vivian Job Postings (tabbed: individual postings / rollup by recruiter) ──
   html += `<div class="tbl-card" style="margin-bottom:16px">
     <div class="tbl-hdr">
-      <span><span class="board-dot" style="background:${color}"></span>Vivian — Job Postings</span>
-      <span class="tbl-hint">${posts.length} posting${posts.length !== 1 ? 's' : ''}</span>
+      <span><span class="board-dot" style="background:${color}"></span>Vivian Job Postings</span>
+      <span class="tbl-hint">Job Postings.xlsx › Vivian Analysis</span>
     </div>
-    <div class="tbl-wrap"><table class="dtbl"><thead><tr>
-      <th>Recruiter</th><th>Date</th><th>Job Title</th>
-      <th class="r">Inbound</th><th class="r">Proposals</th><th class="r">Total Applicants</th><th>Status</th>
-    </tr></thead><tbody>`;
+    <div class="viv-tabs">
+      <button class="viv-tab active" onclick="switchVivTab(this,'viv-pane-postings')">Vivian Job Posting</button>
+      <button class="viv-tab" onclick="switchVivTab(this,'viv-pane-byrec')">Posting by Recruiters</button>
+    </div>
+    <div id="viv-pane-postings" class="viv-tab-pane">
+      <div class="tbl-wrap"><table class="dtbl"><thead><tr>
+        <th>Recruiter</th><th>Date</th><th>Job Title</th>
+        <th class="r">Inbound</th><th class="r">Proposals</th><th class="r">Total Applicants</th><th>Status</th>
+      </tr></thead><tbody>`;
 
   if (!posts.length) {
     html += `<tr><td colspan="7" class="empty-cell">No Vivian posting data.</td></tr>`;
@@ -1306,75 +1383,137 @@ function renderVivianDetail() {
       </tr>`;
     });
   }
-  html += '</tbody></table></div></div>';
-
-  // Split candidates by tier
-  const premCands = cands.filter(r => r.isPremium);
-  const stdCands  = cands.filter(r => !r.isPremium);
+  html += `</tbody></table></div>
+    </div>
+    <div id="viv-pane-byrec" class="viv-tab-pane" style="display:none">
+      <div class="viv-search-bar">
+        <input type="text" id="viv-rec-search" class="viv-search-input" placeholder="Search recruiter" oninput="renderVivByRecTable()">
+      </div>
+      <div class="tbl-wrap"><table class="dtbl" id="viv-byrec-table"><thead><tr>
+        <th class="sortable" onclick="sortVivByRec('recruiter')">Posted By</th>
+        <th class="r sortable" onclick="sortVivByRec('jobs')">Number of Jobs<span class="sort-arrow" data-col="jobs"></span></th>
+        <th class="r sortable" onclick="sortVivByRec('applications')">Total Candidates<span class="sort-arrow" data-col="applications"></span></th>
+        <th class="r sortable" onclick="sortVivByRec('submissions')">Submission<span class="sort-arrow" data-col="submissions"></span></th>
+      </tr></thead><tbody id="viv-byrec-body"></tbody></table></div>
+    </div>
+  </div>`;
 
   // ── Table 2: Premium Candidate Activity ──
-  html += _vivianCandTable('Vivian — Premium Candidate Activity', premCands, color);
+  html += _vivianCreditsTable('Vivian — Premium Candidate Activity', APP.vivianCredits, 'premium', color);
 
   // ── Table 3: Standard Candidate Activity ──
-  html += _vivianCandTable('Vivian — Standard Candidate Activity', stdCands, color);
+  html += _vivianCreditsTable('Vivian — Standard Candidate Activity', APP.vivianCredits, 'standard', color);
 
   inner.innerHTML = html;
+  renderVivByRecTable();
 }
 
-function _vivianCandTable(title, cands, color) {
-  const byRec = {};
-  cands.forEach(r => {
-    const key = r.recruiter || 'Unknown';
-    if (!byRec[key]) byRec[key] = { credits: 0, resumes: 0, contacts: 0, inbound: 0, proposal: 0 };
-    byRec[key].credits  += r.views    || 0;
-    byRec[key].resumes++;
-    byRec[key].contacts += r.contacts || 0;
-    byRec[key].inbound  += r.inbound  || 0;
-    byRec[key].proposal += r.proposal || 0;
+// ── Vivian: "Posting by Recruiters" tab (tabs, sort, search, data bars) ──
+function switchVivTab(btn, paneId) {
+  const card = btn.closest('.tbl-card');
+  if (!card) return;
+  card.querySelectorAll('.viv-tab').forEach(t => t.classList.remove('active'));
+  card.querySelectorAll('.viv-tab-pane').forEach(p => p.style.display = 'none');
+  btn.classList.add('active');
+  const pane = document.getElementById(paneId);
+  if (pane) pane.style.display = '';
+}
+
+APP.vivByRecSort = { key: 'jobs', dir: 'desc' };
+
+function sortVivByRec(key) {
+  const s = APP.vivByRecSort;
+  s.dir = (s.key === key && s.dir === 'desc') ? 'asc' : 'desc';
+  s.key = key;
+  renderVivByRecTable();
+}
+
+function renderVivByRecTable() {
+  const tbody = document.getElementById('viv-byrec-body');
+  if (!tbody) return;
+  const searchEl = document.getElementById('viv-rec-search');
+  const query = (searchEl ? searchEl.value : '').trim().toLowerCase();
+
+  let rows = Object.entries(APP.vivianByRec || {}).map(([recruiter, d]) => ({ recruiter, ...d }));
+  if (query) rows = rows.filter(r => r.recruiter.toLowerCase().includes(query));
+
+  const { key, dir } = APP.vivByRecSort;
+  const mul = dir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => key === 'recruiter'
+    ? mul * a.recruiter.localeCompare(b.recruiter)
+    : mul * ((a[key] || 0) - (b[key] || 0)));
+
+  document.querySelectorAll('#viv-byrec-table .sort-arrow').forEach(el => {
+    el.textContent = el.dataset.col === key ? (dir === 'asc' ? ' ▴' : ' ▾') : '';
   });
 
-  const rows       = Object.entries(byRec).sort((a, b) => b[1].credits - a[1].credits);
-  const totCredits = rows.reduce((s, [, d]) => s + d.credits, 0);
-  const totResumes = rows.reduce((s, [, d]) => s + d.resumes, 0);
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-cell">${query ? 'No matching recruiters.' : 'No recruiter data.'}</td></tr>`;
+    return;
+  }
+
+  const maxJobs = Math.max(1, ...rows.map(r => r.jobs || 0));
+  const maxApps = Math.max(1, ...rows.map(r => r.applications || 0));
+  const maxSubs = Math.max(1, ...rows.map(r => r.submissions || 0));
+  const bar = (val, max, color) => `<div class="bar-cell">
+      <div class="bar-track"><div class="bar-fill" style="width:${val > 0 ? Math.max(4, val / max * 100) : 0}%;background:${color}"></div></div>
+      <span class="bar-val">${val > 0 ? fmtNum(val) : '<span class="zero">—</span>'}</span>
+    </div>`;
+
+  tbody.innerHTML = rows.map(r => `<tr>
+      <td>${r.recruiter}</td>
+      <td class="r">${bar(r.jobs || 0, maxJobs, '#8CA9D6')}</td>
+      <td class="r">${bar(r.applications || 0, maxApps, '#8CA9D6')}</td>
+      <td class="r">${bar(r.submissions || 0, maxSubs, '#8CA9D6')}</td>
+    </tr>`).join('');
+}
+
+// Premium/Standard per-recruiter activity, from the Resume Searches.xlsx "Vivian Analysis"
+// sheet (verified against its Grand Total row) — not the raw "Vivian Candidates" sheet, whose
+// Standard tier covers a much larger, differently-scoped dataset (1,186 vs this sheet's 138).
+function _vivianCreditsTable(title, vivianCredits, tier, color) {
+  const byRec     = (vivianCredits || {}).byRecruiter || {};
+  const creditKey = tier === 'premium' ? 'premiumCreditUsed' : 'standardCreditUsed';
+  const candKey   = tier === 'premium' ? 'premiumCandidates' : 'standardCandidates';
+  const subKey    = tier === 'premium' ? 'premiumSubmission' : 'standardSubmission';
+
+  const rows = Object.entries(byRec)
+    .map(([rec, d]) => ({ rec, credits: d[creditKey] || 0, candidates: d[candKey] || 0, submission: d[subKey] || 0 }))
+    .filter(r => r.credits > 0 || r.candidates > 0 || r.submission > 0)
+    .sort((a, b) => b.credits - a.credits);
+
+  const totCredits = rows.reduce((s, r) => s + r.credits, 0);
+  const totCands   = rows.reduce((s, r) => s + r.candidates, 0);
+  const totSub     = rows.reduce((s, r) => s + r.submission, 0);
 
   let html = `<div class="tbl-card" style="margin-bottom:16px">
     <div class="tbl-hdr">
       <span><span class="board-dot" style="background:${color}"></span>${title}</span>
-      <span class="tbl-hint">Total Resumes: ${fmtNum(totResumes)} &nbsp;·&nbsp; Total Credits: ${fmtNum(totCredits)}</span>
+      <span class="tbl-hint">Candidates: ${fmtNum(totCands)} &nbsp;·&nbsp; Credits: ${fmtNum(totCredits)}</span>
     </div>
     <div class="tbl-wrap"><table class="dtbl"><thead><tr>
       <th>Recruiter</th>
-      <th class="r">Credits Used</th>
-      <th class="r">Total Resumes</th>
-      <th class="r">Inbound</th>
-      <th class="r">Proposal</th>
-      <th class="r">Granted Contacts</th>
+      <th class="r">Credit Used</th>
+      <th class="r">Candidates</th>
+      <th class="r">Submission</th>
     </tr></thead><tbody>`;
 
   if (!rows.length) {
-    html += `<tr><td colspan="6" class="empty-cell">No data.</td></tr>`;
+    html += `<tr><td colspan="4" class="empty-cell">No data.</td></tr>`;
   } else {
-    rows.forEach(([rec, d]) => {
+    rows.forEach(r => {
       html += `<tr>
-        <td>${rec}</td>
-        <td class="r"><strong>${fmtNum(d.credits)}</strong></td>
-        <td class="r">${fmtNum(d.resumes)}</td>
-        <td class="r">${d.inbound  > 0 ? fmtNum(d.inbound)  : '<span class="zero">—</span>'}</td>
-        <td class="r">${d.proposal > 0 ? fmtNum(d.proposal) : '<span class="zero">—</span>'}</td>
-        <td class="r">${d.contacts > 0 ? fmtNum(d.contacts) : '<span class="zero">—</span>'}</td>
+        <td>${r.rec}</td>
+        <td class="r"><strong>${fmtNum(r.credits)}</strong></td>
+        <td class="r">${fmtNum(r.candidates)}</td>
+        <td class="r">${r.submission > 0 ? fmtNum(r.submission) : '<span class="zero">—</span>'}</td>
       </tr>`;
     });
-    // Totals row
-    const totContacts = rows.reduce((s, [, d]) => s + d.contacts, 0);
-    const totInbound  = rows.reduce((s, [, d]) => s + d.inbound, 0);
-    const totProp     = rows.reduce((s, [, d]) => s + d.proposal, 0);
     html += `<tr class="matrix-total">
       <td><strong>Total</strong></td>
       <td class="r"><strong>${fmtNum(totCredits)}</strong></td>
-      <td class="r"><strong>${fmtNum(totResumes)}</strong></td>
-      <td class="r"><strong>${fmtNum(totInbound)}</strong></td>
-      <td class="r"><strong>${fmtNum(totProp)}</strong></td>
-      <td class="r"><strong>${fmtNum(totContacts)}</strong></td>
+      <td class="r"><strong>${fmtNum(totCands)}</strong></td>
+      <td class="r"><strong>${fmtNum(totSub)}</strong></td>
     </tr>`;
   }
   html += '</tbody></table></div></div>';

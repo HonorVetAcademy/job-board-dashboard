@@ -555,6 +555,41 @@ body.rec-mode #dash-header {
 }
 .rec-tab-pane { margin-top: 0; border-radius: 0 var(--radius) var(--radius) var(--radius); }
 
+/* ── VIVIAN DETAIL TABS (job postings / posting by recruiters) ──── */
+.viv-tabs {
+  display: flex; gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+}
+.viv-tab {
+  padding: 10px 14px; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .3px;
+  border: none; background: none; cursor: pointer;
+  color: var(--txt3); border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.viv-tab:hover { color: var(--navy); }
+.viv-tab.active { color: var(--navy); border-bottom-color: var(--navy); }
+.viv-tab-pane { padding-top: 0; }
+.viv-search-bar { padding: 12px 16px 0; }
+.viv-search-input {
+  width: 100%; max-width: 280px; padding: 7px 12px;
+  border: 1.5px solid var(--border); border-radius: 8px;
+  font-size: 13px; font-family: inherit; color: var(--txt);
+  background: #fff;
+}
+.viv-search-input:focus { outline: none; border-color: var(--teal); }
+
+/* ── SORTABLE HEADERS & DATA BARS ───────────────── */
+.dtbl th.sortable { cursor: pointer; user-select: none; }
+.dtbl th.sortable:hover { color: var(--navy); }
+.sort-arrow { display: inline-block; width: 10px; color: var(--teal); font-size: 10px; }
+.bar-cell { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.bar-track { flex: 1; max-width: 100px; height: 12px; }
+.bar-fill { height: 100%; border-radius: 2px; min-width: 2px; }
+.bar-val { min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+
 /* ── MATRIX TABLE ───────────────────────────────── */
 .matrix-tbl { border-collapse: separate; border-spacing: 0; }
 .matrix-tbl thead th {
