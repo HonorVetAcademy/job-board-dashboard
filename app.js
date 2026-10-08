@@ -1407,11 +1407,8 @@ function renderVivianDetail() {
     </div>
   </div>`;
 
-  // ── Table 2: Premium Candidate Activity ──
-  html += _vivianCreditsTable('Vivian — Premium Candidate Activity', APP.vivianCredits, 'premium', color);
-
-  // ── Table 3: Standard Candidate Activity ──
-  html += _vivianCreditsTable('Vivian — Standard Candidate Activity', APP.vivianCredits, 'standard', color);
+  // ── Table 2: Candidate Activity (Premium + Standard combined) ──
+  html += _vivianCreditsTable(APP.vivianCredits, color);
 
   inner.innerHTML = html;
   renderVivByRecTable();
@@ -1477,17 +1474,20 @@ function renderVivByRecTable() {
     </tr>`).join('');
 }
 
-// Premium/Standard per-recruiter activity, from the Resume Searches.xlsx "Vivian Analysis"
-// sheet (verified against its Grand Total row) — not the raw "Vivian Candidates" sheet, whose
-// Standard tier covers a much larger, differently-scoped dataset (1,186 vs this sheet's 138).
-function _vivianCreditsTable(title, vivianCredits, tier, color) {
-  const byRec     = (vivianCredits || {}).byRecruiter || {};
-  const creditKey = tier === 'premium' ? 'premiumCreditUsed' : 'standardCreditUsed';
-  const candKey   = tier === 'premium' ? 'premiumCandidates' : 'standardCandidates';
-  const subKey    = tier === 'premium' ? 'premiumSubmission' : 'standardSubmission';
+// Per-recruiter candidate activity (Premium + Standard combined), from the Resume
+// Searches.xlsx "Vivian Analysis" sheet (verified against its Grand Total row) — not the
+// raw "Vivian Candidates" sheet, whose Standard tier covers a much larger, differently-
+// scoped dataset (1,186 vs this sheet's 138).
+function _vivianCreditsTable(vivianCredits, color) {
+  const byRec = (vivianCredits || {}).byRecruiter || {};
 
   const rows = Object.entries(byRec)
-    .map(([rec, d]) => ({ rec, credits: d[creditKey] || 0, candidates: d[candKey] || 0, submission: d[subKey] || 0 }))
+    .map(([rec, d]) => ({
+      rec,
+      credits:    (d.premiumCreditUsed || 0) + (d.standardCreditUsed || 0),
+      candidates: (d.premiumCandidates || 0) + (d.standardCandidates || 0),
+      submission: (d.premiumSubmission || 0) + (d.standardSubmission || 0),
+    }))
     .filter(r => r.credits > 0 || r.candidates > 0 || r.submission > 0)
     .sort((a, b) => b.credits - a.credits);
 
@@ -1497,7 +1497,7 @@ function _vivianCreditsTable(title, vivianCredits, tier, color) {
 
   let html = `<div class="tbl-card" style="margin-bottom:16px">
     <div class="tbl-hdr">
-      <span><span class="board-dot" style="background:${color}"></span>${title}</span>
+      <span><span class="board-dot" style="background:${color}"></span>Vivian — Candidate Activity</span>
       <span class="tbl-hint">Candidates: ${fmtNum(totCands)} &nbsp;·&nbsp; Credits: ${fmtNum(totCredits)}</span>
     </div>
     <div class="tbl-wrap"><table class="dtbl"><thead><tr>
