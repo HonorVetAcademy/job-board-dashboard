@@ -169,6 +169,7 @@
       <div class="sec-head">
         <h2>Board-Level Performance</h2>
         <span class="sec-sub" id="board-detail-lbl">Select a board from the filter above for a detailed view</span>
+        <button class="btn btn-ghost sm" onclick="openAllocModal()" style="margin-left:auto">Set Allocations</button>
       </div>
 
       <!-- Board-specific detail (shown when board filter is active) -->
@@ -187,7 +188,9 @@
             <table class="dtbl" id="dtbl-postings">
               <thead><tr>
                 <th>Board</th>
-                <th class="r">Jobs Posted</th>
+                <th class="r">Allocated</th>
+                <th class="r">Posted</th>
+                <th class="r">Available</th>
                 <th class="r">Total Views</th>
                 <th class="r">Applicants</th>
                 <th class="r">Avg Views/Job</th>

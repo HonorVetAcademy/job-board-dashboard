@@ -966,14 +966,19 @@ function renderTables() {
 function renderPostingsTable() {
   const tbody = document.getElementById('dtbl-postings-body');
   if (!tbody) return;
+  const alloc  = loadAllocations();
   const boards = Object.entries(APP.boardPost).sort((a,b) => b[1].jobs - a[1].jobs);
-  tbody.innerHTML = boards.map(([board, d], i) => {
+  tbody.innerHTML = boards.map(([board, d]) => {
     const avgViews = d.jobs > 0 ? (d.views / d.jobs).toFixed(1) : '—';
     const convRate = d.views > 0 ? (d.applications / d.views * 100).toFixed(1) + '%' : '—';
     const topVert  = [...d.verticals][0] || '—';
+    const al    = alloc[board] || null;
+    const avail = al !== null ? Math.max(0, al - d.jobs) : null;
     return `<tr>
       <td><span class="board-dot" style="background:${boardColor(board)}"></span>${board}</td>
+      <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
       <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
+      <td class="r">${avail === null ? '<span class="zero">—</span>' : fmtNum(avail)}</td>
       <td class="r">${fmtNum(d.views)}</td>
       <td class="r">${fmtNum(d.applications)}</td>
       <td class="r">${avgViews}</td>
@@ -1037,9 +1042,22 @@ function renderTwoBoardTables(board) {
   const posts   = APP.fPostRecs.filter(r => r.board === board);
   const searches = APP.fSrchRecs.filter(r => r.board === board);
   const color   = boardColor(board);
+  const alloc   = loadAllocations();
+  const al      = alloc[board] || null;
+  const avail   = al !== null ? Math.max(0, al - posts.length) : null;
+
+  // Allocation summary bar
+  let html = `<div class="alloc-bar">
+    <span class="alloc-bar-item"><strong>Allocated:</strong> ${al ? fmtNum(al) : '—'}</span>
+    <span class="alloc-bar-sep">·</span>
+    <span class="alloc-bar-item"><strong>Posted:</strong> ${fmtNum(posts.length)}</span>
+    <span class="alloc-bar-sep">·</span>
+    <span class="alloc-bar-item"><strong>Available:</strong> ${avail !== null ? fmtNum(avail) : '—'}</span>
+    <button class="btn btn-ghost sm" style="margin-left:auto" onclick="openAllocModal()">Set Allocations</button>
+  </div>`;
 
   // ── Table 1: Postings ──
-  let html = `<div class="tbl-card" style="margin-bottom:16px">
+  html += `<div class="tbl-card" style="margin-bottom:16px">
     <div class="tbl-hdr">
       <span><span class="board-dot" style="background:${color}"></span>${board} — Job Postings</span>
       <span class="tbl-hint">${posts.length} job${posts.length !== 1 ? 's' : ''}</span>
@@ -1119,9 +1137,21 @@ function renderVivianDetail() {
   const posts = APP.fPostRecs.filter(r => r.board === 'Vivian');
   const cands = APP.fSrchRecs.filter(r => r.board === 'Vivian');
   const color = boardColor('Vivian');
+  const alloc = loadAllocations();
+  const al    = alloc['Vivian'] || null;
+  const avail = al !== null ? Math.max(0, al - posts.length) : null;
+
+  let html = `<div class="alloc-bar">
+    <span class="alloc-bar-item"><strong>Allocated:</strong> ${al ? fmtNum(al) : '—'}</span>
+    <span class="alloc-bar-sep">·</span>
+    <span class="alloc-bar-item"><strong>Posted:</strong> ${fmtNum(posts.length)}</span>
+    <span class="alloc-bar-sep">·</span>
+    <span class="alloc-bar-item"><strong>Available:</strong> ${avail !== null ? fmtNum(avail) : '—'}</span>
+    <button class="btn btn-ghost sm" style="margin-left:auto" onclick="openAllocModal()">Set Allocations</button>
+  </div>`;
 
   // ── Table 1: Vivian Job Postings ──
-  let html = `<div class="tbl-card" style="margin-bottom:16px">
+  html += `<div class="tbl-card" style="margin-bottom:16px">
     <div class="tbl-hdr">
       <span><span class="board-dot" style="background:${color}"></span>Vivian — Job Postings</span>
       <span class="tbl-hint">${posts.length} posting${posts.length !== 1 ? 's' : ''}</span>
@@ -1554,13 +1584,16 @@ function renderExecPortalOverview() {
 function renderOvPostings(wrapId, mode) {
   const wrap = document.getElementById(wrapId);
   if (!wrap) return;
+  const alloc    = loadAllocations();
   const boards   = Object.entries(APP.boardPost).sort((a,b) => b[1].jobs - a[1].jobs);
   const isExec   = mode === 'exec';
   const spendHdr = isExec ? '<th class="r">Ad Spend</th>' : '<th class="r">Indeed Budget</th>';
 
   let html = `<table class="dtbl"><thead><tr>
     <th>Portal</th>
-    <th class="r">Jobs Posted</th>
+    <th class="r">Allocated</th>
+    <th class="r">Posted</th>
+    <th class="r">Available</th>
     <th class="r">Total Views</th>
     <th class="r">Applicants</th>
     <th class="r">Conv. Rate</th>
@@ -1569,24 +1602,26 @@ function renderOvPostings(wrapId, mode) {
   </tr></thead><tbody>`;
 
   if (!boards.length) {
-    html += `<tr><td colspan="7" class="empty-cell">No posting data.</td></tr>`;
+    html += `<tr><td colspan="9" class="empty-cell">No posting data.</td></tr>`;
   } else {
     html += boards.map(([bd, d]) => {
       const conv  = d.views > 0 ? (d.applications/d.views*100).toFixed(1)+'%' : '—';
       const color = boardColor(bd);
+      const al    = alloc[bd] || null;
+      const avail = al !== null ? Math.max(0, al - d.jobs) : null;
       let spendCell;
       if (isExec) {
-        // Executive: show spend for all boards
-        spendCell = d.spend > 0 ? `<strong>${fmtDol(d.spend)}</strong>` : '<span class="zero">—</span>';
+        spendCell = d.spend > 0 ? fmtDol(d.spend) : '<span class="zero">—</span>';
       } else {
-        // Recruiter: show spend ONLY for Indeed (budget visibility); everything else hidden
         spendCell = (bd === 'Indeed' && d.spend > 0)
-          ? `<span class="badge badge-warn" title="Indeed ad budget used">${fmtDol(d.spend)}</span>`
+          ? fmtDol(d.spend)
           : '<span class="zero">—</span>';
       }
       return `<tr>
         <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
+        <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
         <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
+        <td class="r">${avail === null ? '<span class="zero">—</span>' : fmtNum(avail)}</td>
         <td class="r">${fmtNum(d.views)}</td>
         <td class="r">${fmtNum(d.applications)}</td>
         <td class="r">${conv}</td>
@@ -1854,6 +1889,10 @@ function saveAllocations() {
   });
   localStorage.setItem(ALLOC_KEY, JSON.stringify(alloc));
   closeAllocModal();
+  renderPostingsTable();
+  renderOvPostings('exec-ov-post-wrap', 'exec');
+  renderOvPostings('rv-ov-post-wrap', 'recruiter');
+  renderBoardDetail();
   renderRecruiterView();
 }
 function openAllocModal() {

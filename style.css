@@ -542,6 +542,17 @@ table { border-collapse: collapse; width: 100%; }
   margin: 0 auto 0 12px;
 }
 
+/* ── ALLOCATION BAR ─────────────────────────────── */
+.alloc-bar {
+  display: flex; align-items: center; gap: 8px;
+  background: #F7FAFC; border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 16px;
+  margin-bottom: 14px; font-size: 13px; color: var(--txt2);
+  flex-wrap: wrap;
+}
+.alloc-bar-item { white-space: nowrap; }
+.alloc-bar-sep  { color: var(--txt3); }
+
 /* ── PRINT ───────────────────────────────────────── */
 @media print {
   #dash-header, #dash-nav, #filter-bar,
