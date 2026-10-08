@@ -284,32 +284,54 @@ function parseDocCafeData(wb) {
   })).filter(r => r.jobTitle);
 }
 
+// Parse Vivian_Candidates sheet (Job Postings.xlsx): jobId | inbound | Count
+// Returns a map of objectID → { inbound: N, proposal: N }
+function parseVivianCandidateStats(wb) {
+  const rows = sheetToArray(wb, 'Vivian_Candidates');
+  if (!rows || rows.length < 2) return {};
+  const stats = {};
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const jobId = strVal(r[0]);
+    const type  = strVal(r[1]).trim().toLowerCase(); // 'inbound' or 'proposal'
+    const count = numVal(r[2]);
+    if (!jobId) continue;
+    if (!stats[jobId]) stats[jobId] = { inbound: 0, proposal: 0 };
+    if (type === 'inbound')  stats[jobId].inbound  += count;
+    if (type === 'proposal') stats[jobId].proposal += count;
+  }
+  return stats;
+}
+
 function parseVivianPosting(wb) {
   const rows = sheetToArray(wb, 'Vivian_Posting');
   if (!rows) return [];
-  // 90-column raw dump; header at row 0
   const hdr = { idx: 0, headers: (rows[0] || []).map(c => strVal(c).trim()) };
+  // Applicant and submission counts come from Vivian_Candidates sheet, not Vivian_Posting
+  const candStats = parseVivianCandidateStats(wb);
   const seen = new Set();
   return dataRows(rows, hdr).map(r => {
-    const id = strVal(r['objectID'] || r['JobID'] || r['jobId'] || '');
-    // Only deduplicate non-empty IDs; blank-ID rows are each unique entries
+    const id = strVal(r['objectID'] || r['jobId'] || '');
     if (id && seen.has(id)) return null;
     if (id) seen.add(id);
-    const inbound  = numVal(r['Inbound']  || r['inbound']  || r['Inbound Count']  || 0);
-    const proposal = numVal(r['Proposal'] || r['proposal'] || r['Proposal Count'] || 0);
+    const stats = candStats[id] || { inbound: 0, proposal: 0 };
+    // Build job title from discipline + specialty (no dedicated title column in this schema)
+    const disc    = strVal(r['discipline'] || r['jobTitle'] || '');
+    const specRaw = strVal(r['specialty'] || '');
+    const spec    = specRaw.replace(/[\[\]"]/g, '').split(',')[0].trim();
+    const jobTitle = spec ? `${disc} – ${spec}` : disc;
     return {
       board: 'Vivian',
-      date: toDate(r['Date '] || r['Date'] || r['createdAt']),
-      recruiter: cleanName(r['recruiterFullName'] || r['Recruiter'] || ''),
+      date: toDate(r['createdAt'] || r['Date'] || ''),
+      recruiter: cleanName(r['recruiterFullName'] || ''),
       vertical: 'Healthcare',
-      jobTitle: strVal(r['Job/searchTitle'] || r['Job'] || r['searchTitle'] || r['jobTitle'] || r['Job Title'] || ''),
+      jobTitle,
       positionId: id,
       views: 0,
-      applications: inbound + proposal,
-      alerts: 0,
+      applications: stats.inbound,   // Inbound = applicants
+      inbound: stats.inbound,
+      proposal: stats.proposal,       // Proposal = submissions to client
       active: true,
-      inbound,
-      proposal,
       spend: 0,
     };
   }).filter(Boolean).filter(r => r.jobTitle);
@@ -346,6 +368,7 @@ function parseJobDivaResumes(wb) {
     searches: 0,
     contacts: 0,
     responses: 0,
+    submission: strVal(r['Submission'] || '').trim() !== '' ? 1 : 0,
   })).filter(r => r.candidate);
 }
 
@@ -645,11 +668,12 @@ function aggregate() {
   // Search records
   for (const r of APP.fSrchRecs) {
     const b = r.board;
-    if (!APP.boardSrch[b]) APP.boardSrch[b] = { searches: 0, views: 0, contacts: 0, responses: 0, recruiters: new Set(), minDate: null, maxDate: null };
-    APP.boardSrch[b].searches += r.searches || 0;
-    APP.boardSrch[b].views    += r.views    || 0;
-    APP.boardSrch[b].contacts += r.contacts || 0;
-    APP.boardSrch[b].responses+= r.responses|| 0;
+    if (!APP.boardSrch[b]) APP.boardSrch[b] = { searches: 0, views: 0, contacts: 0, responses: 0, submissions: 0, recruiters: new Set(), minDate: null, maxDate: null };
+    APP.boardSrch[b].searches    += r.searches   || 0;
+    APP.boardSrch[b].views       += r.views      || 0;
+    APP.boardSrch[b].contacts    += r.contacts   || 0;
+    APP.boardSrch[b].responses   += r.responses  || 0;
+    APP.boardSrch[b].submissions += r.submission || 0;
     if (r.recruiter) APP.boardSrch[b].recruiters.add(r.recruiter);
     if (r.date) {
       if (!APP.boardSrch[b].minDate || r.date < APP.boardSrch[b].minDate) APP.boardSrch[b].minDate = r.date;
@@ -657,13 +681,15 @@ function aggregate() {
     }
 
     if (r.recruiter) {
-      if (!APP.recSrch[r.recruiter]) APP.recSrch[r.recruiter] = { views: 0, boards: new Set() };
-      APP.recSrch[r.recruiter].views += r.views || 0;
+      if (!APP.recSrch[r.recruiter]) APP.recSrch[r.recruiter] = { views: 0, submissions: 0, boards: new Set() };
+      APP.recSrch[r.recruiter].views       += r.views      || 0;
+      APP.recSrch[r.recruiter].submissions += r.submission || 0;
       APP.recSrch[r.recruiter].boards.add(b);
       // Recruiter × Board breakdown
       if (!APP.recSrchByBoard[r.recruiter]) APP.recSrchByBoard[r.recruiter] = {};
-      if (!APP.recSrchByBoard[r.recruiter][b]) APP.recSrchByBoard[r.recruiter][b] = { views:0 };
-      APP.recSrchByBoard[r.recruiter][b].views += r.views || 0;
+      if (!APP.recSrchByBoard[r.recruiter][b]) APP.recSrchByBoard[r.recruiter][b] = { views: 0, submissions: 0 };
+      APP.recSrchByBoard[r.recruiter][b].views       += r.views      || 0;
+      APP.recSrchByBoard[r.recruiter][b].submissions += r.submission || 0;
     }
 
     if (r.date) {
@@ -1632,9 +1658,8 @@ function renderRvCompanyPostings(wrapId) {
                       : available > 0
                         ? `<span class="badge badge-blue">${available}</span>`
                         : `<span class="badge badge-warn">0</span>`;
-      const submissions = APP.fPostRecs
-        .filter(r => r.board === bd)
-        .reduce((s, r) => s + (r.proposal || 0), 0);
+      // Submissions come from JobDiva Resumes (Submission column) tracked in boardSrch
+      const submissions = (APP.boardSrch[bd] || {}).submissions || 0;
       return `<tr>
         <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
         <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
@@ -1657,16 +1682,21 @@ function renderRvCompanySearches(wrapId) {
   let html = `<table class="dtbl"><thead><tr>
     <th>Database / Source</th>
     <th class="r">Candidates Sourced</th>
+    <th class="r">Submissions</th>
     <th>Period</th>
   </tr></thead><tbody>`;
   if (!boards.length) {
-    html += `<tr><td colspan="3" class="empty-cell">No sourcing data.</td></tr>`;
+    html += `<tr><td colspan="4" class="empty-cell">No sourcing data.</td></tr>`;
   } else {
-    html += boards.map(([bd, d]) => `<tr>
-      <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
-      <td class="r"><strong>${fmtNum(d.views)}</strong></td>
-      <td>${fmtPeriod(d.minDate, d.maxDate)}</td>
-    </tr>`).join('');
+    html += boards.map(([bd, d]) => {
+      const subs = d.submissions || 0;
+      return `<tr>
+        <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
+        <td class="r"><strong>${fmtNum(d.views)}</strong></td>
+        <td class="r">${subs > 0 ? `<strong>${fmtNum(subs)}</strong>` : '<span class="zero">—</span>'}</td>
+        <td>${fmtPeriod(d.minDate, d.maxDate)}</td>
+      </tr>`;
+    }).join('');
   }
   html += '</tbody></table>';
   wrap.innerHTML = html;
@@ -1906,10 +1936,8 @@ function renderRvPortalTable(name) {
                      : available > 0
                        ? `<span class="badge badge-blue">${available}</span>`
                        : `<span class="badge badge-warn">0</span>`;
-    // Submissions = Proposal count for Vivian; for others show applications as submissions
-    const submissions = myPosts
-      .filter(r => r.board === bd)
-      .reduce((s, r) => s + (r.proposal || 0), 0);
+    // Submissions from JobDiva Resumes (Submission column) per recruiter × board
+    const submissions = ((APP.recSrchByBoard[name] || {})[bd] || {}).submissions || 0;
     const submissionsHtml = submissions > 0
       ? `<strong>${fmtNum(submissions)}</strong>`
       : '<span class="zero">—</span>';
