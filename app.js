@@ -1039,7 +1039,7 @@ function renderTables() {
   renderRecruitersTable();
   renderRecruiterPostMatrix();
   renderRecruiterSrchMatrix();
-  renderExecPortalOverview();           // portal tables in Executive KPI section
+  renderExecPortalOverview();  // portal tables in Executive KPI section
   // Refresh recruiter view overview too if it's active
   if (document.getElementById('recruiter-view')?.style.display !== 'none') {
     renderRvPortalOverview();
@@ -1402,60 +1402,105 @@ function applyRecruiterView() {
   populateRvPicker();
 }
 
-// ── PORTAL OVERVIEW (company-wide, reused in both views) ───
-function renderPortalOverview(postTbodyId, srchTbodyId) {
-  renderOvPostings(postTbodyId);
-  renderOvSearches(srchTbodyId);
-}
+// ── PORTAL OVERVIEW (company-wide, role-aware) ─────────────
+// mode: 'exec' = all cost data visible
+//        'recruiter' = usage only; Indeed budget shown, all other spend hidden
 
 function renderRvPortalOverview() {
-  renderPortalOverview('rv-ov-post-body', 'rv-ov-srch-body');
+  renderOvPostings('rv-ov-post-wrap', 'recruiter');
+  renderOvSearches('rv-ov-srch-wrap');
 }
 
 function renderExecPortalOverview() {
-  renderPortalOverview('exec-ov-post-body', 'exec-ov-srch-body');
+  renderOvPostings('exec-ov-post-wrap', 'exec');
+  renderOvSearches('exec-ov-srch-wrap');
 }
 
-function renderOvPostings(tbodyId) {
-  const tbody = document.getElementById(tbodyId);
-  if (!tbody) return;
-  const boards = Object.entries(APP.boardPost).sort((a,b) => b[1].jobs - a[1].jobs);
-  if (!boards.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No posting data.</td></tr>'; return; }
-  tbody.innerHTML = boards.map(([bd, d]) => {
-    const conv  = d.views > 0 ? (d.applications/d.views*100).toFixed(1)+'%' : '—';
-    const color = boardColor(bd);
-    return `<tr>
-      <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
-      <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
-      <td class="r">${fmtNum(d.views)}</td>
-      <td class="r">${fmtNum(d.applications)}</td>
-      <td class="r">${conv}</td>
-      <td class="r">${d.spend > 0 ? fmtDol(d.spend) : '<span class="zero">—</span>'}</td>
-      <td class="r">${d.recruiters ? d.recruiters.size : '—'}</td>
-    </tr>`;
-  }).join('');
+function renderOvPostings(wrapId, mode) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const boards   = Object.entries(APP.boardPost).sort((a,b) => b[1].jobs - a[1].jobs);
+  const isExec   = mode === 'exec';
+  const spendHdr = isExec ? '<th class="r">Ad Spend</th>' : '<th class="r">Indeed Budget</th>';
+
+  let html = `<table class="dtbl"><thead><tr>
+    <th>Portal</th>
+    <th class="r">Jobs Posted</th>
+    <th class="r">Total Views</th>
+    <th class="r">Applications</th>
+    <th class="r">Conv. Rate</th>
+    ${spendHdr}
+    <th class="r">Recruiters Active</th>
+  </tr></thead><tbody>`;
+
+  if (!boards.length) {
+    html += `<tr><td colspan="7" class="empty-cell">No posting data.</td></tr>`;
+  } else {
+    html += boards.map(([bd, d]) => {
+      const conv  = d.views > 0 ? (d.applications/d.views*100).toFixed(1)+'%' : '—';
+      const color = boardColor(bd);
+      let spendCell;
+      if (isExec) {
+        // Executive: show spend for all boards
+        spendCell = d.spend > 0 ? `<strong>${fmtDol(d.spend)}</strong>` : '<span class="zero">—</span>';
+      } else {
+        // Recruiter: show spend ONLY for Indeed (budget visibility); everything else hidden
+        spendCell = (bd === 'Indeed' && d.spend > 0)
+          ? `<span class="badge badge-warn" title="Indeed ad budget used">${fmtDol(d.spend)}</span>`
+          : '<span class="zero">—</span>';
+      }
+      return `<tr>
+        <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
+        <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
+        <td class="r">${fmtNum(d.views)}</td>
+        <td class="r">${fmtNum(d.applications)}</td>
+        <td class="r">${conv}</td>
+        <td class="r">${spendCell}</td>
+        <td class="r">${d.recruiters ? d.recruiters.size : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
 }
 
-function renderOvSearches(tbodyId) {
-  const tbody = document.getElementById(tbodyId);
-  if (!tbody) return;
+function renderOvSearches(wrapId) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
   const boards = Object.entries(APP.boardSrch).sort((a,b) => b[1].views - a[1].views);
-  if (!boards.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No resume search data.</td></tr>'; return; }
-  tbody.innerHTML = boards.map(([bd, d]) => {
-    const color     = boardColor(bd);
-    const hasInmail = bd === 'LinkedIn' && d.searches > 0;
-    const aRate     = hasInmail ? (d.contacts/d.searches*100).toFixed(1)+'%' : '<span class="zero">—</span>';
-    return `<tr>
-      <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
-      <td class="r"><strong>${fmtNum(d.views)}</strong></td>
-      <td class="r">${d.contacts > 0 ? fmtNum(d.contacts) : '<span class="zero">—</span>'}</td>
-      <td class="r">${hasInmail ? fmtNum(d.searches)  : '<span class="zero">—</span>'}</td>
-      <td class="r">${hasInmail ? fmtNum(d.responses) : '<span class="zero">—</span>'}</td>
-      <td class="r">${hasInmail ? fmtNum(d.contacts)  : '<span class="zero">—</span>'}</td>
-      <td class="r">${hasInmail ? aRate               : '<span class="zero">—</span>'}</td>
-      <td class="r">${d.recruiters ? d.recruiters.size : '—'}</td>
-    </tr>`;
-  }).join('');
+
+  let html = `<table class="dtbl"><thead><tr>
+    <th>Portal / Source</th>
+    <th class="r">Resumes Viewed</th>
+    <th class="r">Contacts / Unlocks</th>
+    <th class="r">InMails Sent</th>
+    <th class="r">Responses</th>
+    <th class="r">Accepted</th>
+    <th class="r">Accept Rate</th>
+    <th class="r">Recruiters Active</th>
+  </tr></thead><tbody>`;
+
+  if (!boards.length) {
+    html += `<tr><td colspan="8" class="empty-cell">No resume search data.</td></tr>`;
+  } else {
+    html += boards.map(([bd, d]) => {
+      const color     = boardColor(bd);
+      const hasInmail = bd === 'LinkedIn' && d.searches > 0;
+      const aRate     = hasInmail ? (d.contacts/d.searches*100).toFixed(1)+'%' : '<span class="zero">—</span>';
+      return `<tr>
+        <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
+        <td class="r"><strong>${fmtNum(d.views)}</strong></td>
+        <td class="r">${d.contacts > 0 ? fmtNum(d.contacts) : '<span class="zero">—</span>'}</td>
+        <td class="r">${hasInmail ? fmtNum(d.searches)  : '<span class="zero">—</span>'}</td>
+        <td class="r">${hasInmail ? fmtNum(d.responses) : '<span class="zero">—</span>'}</td>
+        <td class="r">${hasInmail ? fmtNum(d.contacts)  : '<span class="zero">—</span>'}</td>
+        <td class="r">${hasInmail ? aRate               : '<span class="zero">—</span>'}</td>
+        <td class="r">${d.recruiters ? d.recruiters.size : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
 }
 
 // ── EXEC PASSWORD MODAL ───────────────────────────────────
@@ -1723,12 +1768,14 @@ function exportCSV(type) {
       rows.push([r, p.vertical||'', p.jobs||0, p.views||0, p.applications||0, s.views||0, [...boards].join('; ')]);
     });
   } else if (type === 'rv-overview') {
+    // Recruiter export: no cost data except Indeed budget
     filename = 'portal_overview.csv';
-    rows = [['Type','Portal','Jobs Posted','Views','Applications','Conv%','Spend','Resumes Viewed','Contacts/Unlocks','InMails Sent','Responses','Accepted','Accept Rate','Active Recruiters']];
-    // Posting rows
+    rows = [['Type','Portal','Jobs Posted','Views','Applications','Conv%','Indeed Budget','Resumes Viewed','Contacts/Unlocks','InMails Sent','Responses','Accepted','Accept Rate','Active Recruiters']];
+    // Posting rows — spend only for Indeed
     Object.entries(APP.boardPost).sort((a,b)=>b[1].jobs-a[1].jobs).forEach(([bd,d]) => {
       const conv = d.views>0?(d.applications/d.views*100).toFixed(1)+'%':'';
-      rows.push(['Postings',bd,d.jobs,d.views,d.applications,conv,d.spend||0,'','','','','',d.recruiters?d.recruiters.size:'']);
+      const spend = (bd==='Indeed') ? (d.spend||0) : '';   // hide cost for other boards
+      rows.push(['Postings',bd,d.jobs,d.views,d.applications,conv,spend,'','','','','',d.recruiters?d.recruiters.size:'']);
     });
     // Search rows
     Object.entries(APP.boardSrch).sort((a,b)=>b[1].views-a[1].views).forEach(([bd,d]) => {
