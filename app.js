@@ -6,15 +6,32 @@
    ═══════════════════════════════════════════════════════════ */
 
 // ── EXECUTIVE PASSWORD ────────────────────────────────────
-// Hash is stored in localStorage (never in code) so nothing leaks to the repo.
-// First time: manager clicks Executive → prompted to CREATE a password.
-// After that: everyone must enter it. Stored hash survives browser sessions.
-// To reset: localStorage.removeItem('hv_exec_hash')  in the console.
-const EXEC_HASH_KEY = 'hv_exec_hash'; // localStorage — persists across sessions
-const EXEC_SES_KEY  = 'hv_exec_auth'; // sessionStorage — cleared on tab close
+// The executive password is controlled by the administrator only.
+// Users can only ENTER the password — they cannot create or change it.
+//
+// To set the password:
+//   1. Open browser console on the dashboard page (F12 → Console)
+//   2. Run:  hvGenHash('YourPassword')
+//   3. Copy the hash that appears in the console
+//   4. Give the hash (NOT the password) to your developer to embed below
+//   5. They push it — the same hash then works for ALL users globally
+//
+// EXEC_HASH_FIXED: SHA-256 of the executive password. Empty = not yet configured.
+const EXEC_HASH_FIXED = ''; // ← admin sets this (SHA-256 hash)
+const EXEC_HASH_KEY   = 'hv_exec_hash'; // localStorage fallback (legacy)
+const EXEC_SES_KEY    = 'hv_exec_auth'; // sessionStorage — cleared on tab close
 
 function getStoredExecHash() {
+  if (EXEC_HASH_FIXED) return EXEC_HASH_FIXED;
   try { return localStorage.getItem(EXEC_HASH_KEY) || null; } catch { return null; }
+}
+
+// Admin utility — run in browser console to generate your hash:
+//   hvGenHash('YourPassword')  →  copy the logged hash, send to developer
+async function hvGenHash(pw) {
+  const h = await sha256(pw);
+  console.log('%cExec password hash (embed in EXEC_HASH_FIXED):\n' + h, 'color:#0A66C2;font-weight:bold;font-size:13px');
+  return h;
 }
 
 async function sha256(str) {
@@ -24,10 +41,6 @@ async function sha256(str) {
 
 function isExecAuthed() {
   return sessionStorage.getItem(EXEC_SES_KEY) === '1';
-}
-
-function isExecPasswordSet() {
-  return !!getStoredExecHash();
 }
 
 // ── BOARD CONFIG ──────────────────────────────────────────
@@ -1683,66 +1696,60 @@ function renderOvSearches(wrapId) {
 
 // ── EXEC PASSWORD MODAL ───────────────────────────────────
 function showExecPasswordModal() {
-  const modal   = document.getElementById('exec-pw-modal');
-  const isSetup = !isExecPasswordSet();
+  const modal = document.getElementById('exec-pw-modal');
   if (!modal) return;
-  // Switch between "create" and "enter" modes
-  document.getElementById('exec-pw-modal-title').textContent = isSetup ? '🔒 Create Executive Password' : '🔒 Executive Access';
-  document.getElementById('exec-pw-desc').textContent = isSetup
-    ? 'No password has been set yet. Create one now to protect the Executive view. This is saved only in this browser.'
-    : 'This view contains company-wide performance data and is restricted to authorized personnel.';
-  document.getElementById('exec-pw-confirm-row').style.display = isSetup ? '' : 'none';
-  document.getElementById('exec-pw-btn').textContent = isSetup ? 'Create Password' : 'Unlock →';
-  document.getElementById('exec-pw-input').value = '';
-  document.getElementById('exec-pw-confirm').value = '';
-  document.getElementById('exec-pw-error').style.display = 'none';
+  const stored = getStoredExecHash();
+  const errEl  = document.getElementById('exec-pw-error');
+  const inputEl = document.getElementById('exec-pw-input');
+  const btnEl   = document.getElementById('exec-pw-btn');
+
+  // Always: enter-only mode — confirm row never shown
+  document.getElementById('exec-pw-confirm-row').style.display = 'none';
+  inputEl.value = '';
+  errEl.style.display = 'none';
+
+  if (!stored) {
+    // Password not yet configured by admin
+    errEl.textContent = 'Executive access is not configured. Contact your administrator.';
+    errEl.style.display = 'block';
+    inputEl.style.display = 'none';
+    btnEl.style.display   = 'none';
+  } else {
+    inputEl.style.display = '';
+    btnEl.style.display   = '';
+    setTimeout(() => inputEl.focus(), 80);
+  }
+
   modal.style.display = 'flex';
-  setTimeout(() => document.getElementById('exec-pw-input').focus(), 80);
 }
 
 function closeExecPasswordModal() {
   document.getElementById('exec-pw-modal').style.display = 'none';
+  const inputEl = document.getElementById('exec-pw-input');
+  const btnEl   = document.getElementById('exec-pw-btn');
+  if (inputEl) inputEl.style.display = '';
+  if (btnEl)   btnEl.style.display   = '';
 }
 
 async function submitExecPassword() {
-  const input   = document.getElementById('exec-pw-input').value;
-  const errEl   = document.getElementById('exec-pw-error');
-  const isSetup = !isExecPasswordSet();
-  if (!input) { errEl.textContent = 'Please enter a password.'; errEl.style.display = 'block'; return; }
-
-  if (isSetup) {
-    // Create new password
-    const confirm = document.getElementById('exec-pw-confirm').value;
-    if (input !== confirm) {
-      errEl.textContent = 'Passwords do not match. Please try again.';
-      errEl.style.display = 'block';
-      document.getElementById('exec-pw-confirm').value = '';
-      return;
-    }
-    if (input.length < 6) {
-      errEl.textContent = 'Password must be at least 6 characters.';
-      errEl.style.display = 'block';
-      return;
-    }
-    const hash = await sha256(input);
-    localStorage.setItem(EXEC_HASH_KEY, hash);
+  const input  = document.getElementById('exec-pw-input').value;
+  const errEl  = document.getElementById('exec-pw-error');
+  const stored = getStoredExecHash();
+  if (!stored || !input) {
+    errEl.textContent = 'Please enter the password.';
+    errEl.style.display = 'block';
+    return;
+  }
+  const hash = await sha256(input);
+  if (hash === stored) {
     sessionStorage.setItem(EXEC_SES_KEY, '1');
     closeExecPasswordModal();
     applyExecView();
   } else {
-    // Verify existing password
-    const hash   = await sha256(input);
-    const stored = getStoredExecHash();
-    if (hash === stored) {
-      sessionStorage.setItem(EXEC_SES_KEY, '1');
-      closeExecPasswordModal();
-      applyExecView();
-    } else {
-      errEl.textContent = 'Incorrect password. Please try again.';
-      errEl.style.display = 'block';
-      document.getElementById('exec-pw-input').value = '';
-      document.getElementById('exec-pw-input').focus();
-    }
+    errEl.textContent = 'Incorrect password. Please try again.';
+    errEl.style.display = 'block';
+    document.getElementById('exec-pw-input').value = '';
+    document.getElementById('exec-pw-input').focus();
   }
 }
 

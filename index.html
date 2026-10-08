@@ -405,21 +405,16 @@
   <div id="exec-pw-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeExecPasswordModal()">
     <div class="modal-box pw-modal-box">
       <div class="modal-hdr">
-        <span id="exec-pw-modal-title">🔒 Executive Access</span>
+        <span>🔒 Executive Access</span>
         <button class="icon-btn" onclick="closeExecPasswordModal()">✕</button>
       </div>
       <div class="pw-body">
-        <p class="pw-desc" id="exec-pw-desc">This view contains company-wide performance data and is restricted to authorized personnel.</p>
+        <p class="pw-desc">This view contains company-wide performance data and is restricted to authorized personnel.</p>
         <label class="pw-label">Password</label>
         <input type="password" id="exec-pw-input" class="pw-input"
-               placeholder="Enter password"
+               placeholder="Enter executive password"
                onkeydown="if(event.key==='Enter')submitExecPassword()">
-        <div id="exec-pw-confirm-row" style="display:none; margin-top:12px">
-          <label class="pw-label">Confirm Password</label>
-          <input type="password" id="exec-pw-confirm" class="pw-input"
-                 placeholder="Re-enter password"
-                 onkeydown="if(event.key==='Enter')submitExecPassword()">
-        </div>
+        <div id="exec-pw-confirm-row" style="display:none"></div>
         <div id="exec-pw-error" class="pw-error" style="display:none"></div>
       </div>
       <div class="modal-footer">
