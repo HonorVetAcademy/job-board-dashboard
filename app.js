@@ -530,16 +530,29 @@ function parseVivianCandidates(wb) {
   if (!rows) return [];
   const hdr = { idx: 0, headers: (rows[0] || []).map(c => strVal(c).trim()) };
   return dataRows(rows, hdr).map(r => {
-    const recruiter = cleanName((r['recruiterFirstName'] || '') + ' ' + (r['recruiterLastName'] || ''));
-    const credits   = numVal(r['Credit Used'] || r['Premium Credits'] || 0);
-    const date      = toDate(r['Date'] || r['createdAtDate']);
+    const recruiter  = cleanName((r['recruiterFirstName'] || '') + ' ' + (r['recruiterLastName'] || ''));
+    const creditUsed = numVal(r['Credit Used'] || 0);
+    const date       = toDate(r['Date'] || r['createdAtDate']);
+    // 'Premium Credits' column contains "Premium" or "Standard" text
+    // isPremium bool is also available as a separate column
+    const tierText  = strVal(r['Premium Credits'] || '').toLowerCase();
+    const isPremium = tierText === 'premium' || strVal(r['isPremium']).toLowerCase() === 'true';
+    const candidate = cleanName((r['nurseFirstName'] || r['Nurse_name'] || '') + ' ' + (r['nurseLastName'] || ''));
     return {
       board: 'Vivian', recruiter, date,
-      searches: 1, views: 1, contacts: numVal(r['creditGranted'] || 0),
+      searches: 1,
+      views: creditUsed,           // Credits Used IS the view count (Vivian Views = Credits Used)
+      contacts: numVal(r['creditGranted'] || 0),
       responses: 0,
-      isPremium: strVal(r['isPremium']).toLowerCase() === 'true',
-      discipline: strVal(r['discipline']),
-      credits,
+      isPremium,
+      premiumCredits:  isPremium ? creditUsed : 0,
+      standardCredits: isPremium ? 0 : creditUsed,
+      discipline: strVal(r['jobDiscipline'] || r['discipline'] || ''),
+      credits: creditUsed,
+      candidateName: candidate,
+      inbound: strVal(r['inbound'] || '').toLowerCase() === 'inbound' ? 1 : 0,
+      proposal: strVal(r['inbound'] || '').toLowerCase() === 'proposal' ? 1 : 0,
+      status: strVal(r['candidateStatus'] || ''),
     };
   }).filter(r => r.recruiter && r.recruiter.trim());
 }
@@ -702,8 +715,136 @@ function populateFilters() {
   sel('flt-recruiter', recruiters);
 }
 
+// ── BOARD-SPECIFIC KPI CARDS ──────────────────────────────
+function getBoardKpis(board) {
+  const bPost = APP.boardPost[board] || {};
+  const bSrch = APP.boardSrch[board] || {};
+
+  if (board === 'Vivian') {
+    const vivPosts   = APP.fPostRecs.filter(r => r.board === 'Vivian');
+    const vivCands   = APP.fSrchRecs.filter(r => r.board === 'Vivian');
+    const inbound    = vivPosts.reduce((s, r) => s + (r.inbound  || 0), 0);
+    const proposal   = vivPosts.reduce((s, r) => s + (r.proposal || 0), 0);
+    const premCreds  = vivCands.filter(r => r.isPremium).reduce((s, r) => s + (r.views || 0), 0);
+    const stdCreds   = vivCands.filter(r => !r.isPremium).reduce((s, r) => s + (r.views || 0), 0);
+    const totalCreds = premCreds + stdCreds;
+    const totalResumes = vivCands.length;
+    return [
+      { label: 'Jobs Posted',           value: fmtNum(bPost.jobs || 0),   icon: '📋', cls: 'c-navy'    },
+      { label: 'Inbound Candidates',    value: fmtNum(inbound),            icon: '📥', cls: 'c-teal'    },
+      { label: 'Proposal Candidates',   value: fmtNum(proposal),           icon: '📤', cls: 'c-sky'     },
+      { label: 'Premium Credits Used',  value: fmtNum(premCreds),          icon: '⭐', cls: 'c-purple'  },
+      { label: 'Standard Credits Used', value: fmtNum(stdCreds),           icon: '📋', cls: 'c-orange'  },
+      { label: 'Total Credits Used',    value: fmtNum(totalCreds),         icon: '🔢', cls: 'c-success'  },
+      { label: 'Total Resumes',         value: fmtNum(totalResumes),       icon: '📄', cls: 'c-warn'    },
+    ];
+  }
+
+  if (board === 'LinkedIn') {
+    const liRecs    = APP.fSrchRecs.filter(r => r.board === 'LinkedIn');
+    const liPosts   = APP.fPostRecs.filter(r => r.board === 'LinkedIn');
+    const totalViews = liPosts.reduce((s, r) => s + r.views, 0);
+    const totalApps  = liPosts.reduce((s, r) => s + r.applications, 0);
+    const sends      = liRecs.reduce((s, r) => s + (r.searches  || 0), 0);
+    const accepts    = liRecs.reduce((s, r) => s + (r.contacts  || 0), 0);
+    const responses  = liRecs.reduce((s, r) => s + (r.responses || 0), 0);
+    const rRate      = sends > 0 ? (responses / sends * 100).toFixed(1) + '%' : '—';
+    return [
+      { label: 'Jobs Posted',       value: fmtNum(bPost.jobs || 0), icon: '📋', cls: 'c-navy'    },
+      { label: 'Total Views',       value: fmtNum(totalViews),       icon: '👁', cls: 'c-sky'     },
+      { label: 'Applications',      value: fmtNum(totalApps),        icon: '✅', cls: 'c-teal'    },
+      { label: 'InMails Sent',      value: fmtNum(sends),            icon: '📨', cls: 'c-purple'  },
+      { label: 'InMails Accepted',  value: fmtNum(accepts),          icon: '📬', cls: 'c-success'  },
+      { label: 'Response Rate',     value: rRate,                    icon: '📊', cls: 'c-orange'  },
+    ];
+  }
+
+  if (board === 'Indeed') {
+    const indPosts   = APP.fPostRecs.filter(r => r.board === 'Indeed');
+    const totalApps   = indPosts.reduce((s, r) => s + r.applications, 0);
+    const totalClicks = indPosts.reduce((s, r) => s + (r.clicks || 0), 0);
+    const totalViews  = indPosts.reduce((s, r) => s + r.views, 0);
+    const totalSpend  = indPosts.reduce((s, r) => s + (r.spend || 0), 0);
+    const cpa = totalApps > 0 ? totalSpend / totalApps : null;
+    return [
+      { label: 'Jobs Posted',    value: fmtNum(bPost.jobs || 0), icon: '📋', cls: 'c-navy'    },
+      { label: 'Impressions',    value: fmtNum(totalViews),       icon: '👁', cls: 'c-sky'     },
+      { label: 'Clicks',         value: fmtNum(totalClicks),      icon: '🖱', cls: 'c-teal'    },
+      { label: 'Applicants',     value: fmtNum(totalApps),        icon: '✅', cls: 'c-success'  },
+      { label: 'Ad Spend',       value: fmtDol(totalSpend),       icon: '💰', cls: 'c-navy'    },
+      { label: 'Cost per Apply', value: cpa ? fmtDol(cpa) : '—', icon: '📊', cls: 'c-orange'  },
+    ];
+  }
+
+  if (board === 'Dice') {
+    const diceRecs = APP.fSrchRecs.filter(r => r.board === 'Dice');
+    const resumeViews = diceRecs.reduce((s, r) => s + (r.views || 0), 0);
+    return [
+      { label: 'Jobs Posted',      value: fmtNum(bPost.jobs || 0),         icon: '📋', cls: 'c-navy'    },
+      { label: 'Total Views',      value: fmtNum(bPost.views || 0),        icon: '👁', cls: 'c-sky'     },
+      { label: 'Applicants',       value: fmtNum(bPost.applications || 0), icon: '✅', cls: 'c-teal'    },
+      { label: 'Resumes Viewed',   value: fmtNum(resumeViews),             icon: '🔍', cls: 'c-purple'  },
+      { label: 'Active Recruiters',value: fmtNum(bPost.recruiters ? bPost.recruiters.size : 0), icon: '👤', cls: 'c-orange' },
+    ];
+  }
+
+  if (board === 'Monster') {
+    const monRcvd  = APP.meta?.monsterCreditsRcvd  || 0;
+    const monUsed  = APP.meta?.monsterCreditsUsed  || 0;
+    const monAvail = APP.meta?.monsterCreditsAvail || 0;
+    return [
+      { label: 'Credits Received',  value: fmtNum(monRcvd),  icon: '📦', cls: 'c-navy'    },
+      { label: 'Credits Used',      value: fmtNum(monUsed),  icon: '🔢', cls: 'c-teal'    },
+      { label: 'Credits Available', value: fmtNum(monAvail), icon: '💎', cls: 'c-success'  },
+      { label: 'Utilization',       value: monRcvd > 0 ? (monUsed / monRcvd * 100).toFixed(1) + '%' : '—', icon: '📊', cls: 'c-orange' },
+    ];
+  }
+
+  if (board === 'DocCafe') {
+    return [
+      { label: 'Jobs Posted',      value: fmtNum(bPost.jobs || 0),         icon: '📋', cls: 'c-navy'    },
+      { label: 'Total Views',      value: fmtNum(bPost.views || 0),        icon: '👁', cls: 'c-sky'     },
+      { label: 'Applicants',       value: fmtNum(bPost.applications || 0), icon: '✅', cls: 'c-teal'    },
+      { label: 'Active Recruiters',value: fmtNum(bPost.recruiters ? bPost.recruiters.size : 0), icon: '👤', cls: 'c-orange' },
+    ];
+  }
+
+  if (board === 'Website') {
+    return [
+      { label: 'Jobs Posted',value: fmtNum(bPost.jobs || 0),         icon: '📋', cls: 'c-navy'  },
+      { label: 'Applicants', value: fmtNum(bPost.applications || 0), icon: '✅', cls: 'c-teal'  },
+      { label: 'Verticals',  value: fmtNum(bPost.verticals ? bPost.verticals.size : 0), icon: '🏷', cls: 'c-purple' },
+    ];
+  }
+
+  // Generic fallback
+  return [
+    { label: 'Jobs Posted',      value: fmtNum(bPost.jobs || 0),         icon: '📋', cls: 'c-navy'    },
+    { label: 'Total Views',      value: fmtNum(bPost.views || 0),        icon: '👁', cls: 'c-sky'     },
+    { label: 'Applicants',       value: fmtNum(bPost.applications || 0), icon: '✅', cls: 'c-teal'    },
+    { label: 'Resumes Viewed',   value: fmtNum(bSrch.views || 0),        icon: '🔍', cls: 'c-purple'  },
+    { label: 'Active Recruiters',value: fmtNum(bPost.recruiters ? bPost.recruiters.size : 0), icon: '👤', cls: 'c-orange' },
+  ];
+}
+
 // ── KPI CARDS ─────────────────────────────────────────────
 function renderKPIs() {
+  const selectedBoard = document.getElementById('flt-board')?.value || '';
+
+  // Board-specific KPIs when a board is selected
+  if (selectedBoard) {
+    const cards = getBoardKpis(selectedBoard);
+    document.getElementById('kpi-grid').innerHTML = cards.map(c => `
+      <div class="kpi-card ${c.cls}">
+        <div class="kpi-label">${c.icon} ${c.label}</div>
+        <div class="kpi-value">${c.value}</div>
+        <div class="kpi-sub">${selectedBoard} — filtered data</div>
+      </div>`).join('');
+    const lbl = document.getElementById('kpi-lbl');
+    if (lbl) lbl.textContent = selectedBoard + ' board data';
+    return;
+  }
+
   const totalJobs  = APP.fPostRecs.length;
   const totalViews = APP.fPostRecs.reduce((s, r) => s + r.views, 0);
   const totalApps  = APP.fPostRecs.reduce((s, r) => s + r.applications, 0);
@@ -790,247 +931,21 @@ function renderKPIs() {
   }
 }
 
-// ── CHARTS ────────────────────────────────────────────────
-function mkChart(id, type, data, opts = {}) {
-  const ctx = document.getElementById(id);
-  if (!ctx) return;
-  if (APP.charts[id]) { APP.charts[id].destroy(); }
-  APP.charts[id] = new Chart(ctx.getContext('2d'), {
-    type,
-    data,
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-        tooltip: { mode: 'index', intersect: false },
-      },
-      ...opts,
-    },
-  });
-}
+// ── CHARTS (stubbed — dashboard uses tables only) ─────────
+function mkChart() {}
+function renderCharts() {}
 
-function renderCharts() {
-  renderPostingBarChart();
-  renderPostingPieChart();
-  renderPostingTrendChart();
-  renderPostingMetricsChart();
-  renderSearchBarChart();
-  renderSearchPieChart();
-  renderSearchTrendChart();
-  renderInmailChart();
-  renderRecruiterPostChart();
-  renderRecruiterSrchChart();
-}
-
-function renderPostingBarChart() {
-  const boards = Object.keys(APP.boardPost);
-  mkChart('chart-post-bar', 'bar', {
-    labels: boards,
-    datasets: [{
-      label: 'Jobs Posted',
-      data: boards.map(b => APP.boardPost[b].jobs),
-      backgroundColor: boards.map(b => boardColor(b) + 'CC'),
-      borderColor:     boards.map(b => boardColor(b)),
-      borderWidth: 1, borderRadius: 4,
-    }],
-  }, {
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { grid: { display: false } },
-      y: { beginAtZero: true, ticks: { stepSize: 1 } },
-    },
-  });
-}
-
-function renderPostingPieChart() {
-  const boards = Object.keys(APP.boardPost);
-  if (!boards.length) return;
-  mkChart('chart-post-pie', 'doughnut', {
-    labels: boards,
-    datasets: [{
-      data: boards.map(b => APP.boardPost[b].jobs),
-      backgroundColor: boards.map(b => boardColor(b) + 'CC'),
-      hoverOffset: 6,
-    }],
-  }, {
-    plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } },
-    cutout: '62%',
-  });
-}
-
-function buildTrendData(byDate, mode, limit = 30) {
-  const keys = Object.keys(byDate).sort();
-  if (!keys.length) return { labels: [], datasets: [] };
-
-  // Group by mode
-  const grouped = {};
-  const allBoards = new Set();
-  keys.forEach(dk => {
-    const group = mode === 'weekly' ? isoWeek(new Date(dk)) : dk;
-    if (!grouped[group]) grouped[group] = { total: 0, byBoard: {} };
-    grouped[group].total += byDate[dk].total;
-    Object.entries(byDate[dk].byBoard || {}).forEach(([b, v]) => {
-      grouped[group].byBoard[b] = (grouped[group].byBoard[b] || 0) + v;
-      allBoards.add(b);
-    });
-  });
-
-  const sortedGroups = Object.keys(grouped).sort().slice(-limit);
-  const labels = sortedGroups.map(g => mode === 'weekly' ? g : dateFmt(new Date(g), 'Mon D'));
-
-  // One dataset per board
-  const boards = [...allBoards];
-  const datasets = boards.map(b => ({
-    label: b,
-    data: sortedGroups.map(g => grouped[g].byBoard[b] || 0),
-    borderColor: boardColor(b),
-    backgroundColor: boardColor(b) + '22',
-    tension: 0.3, fill: true, pointRadius: 3,
-  }));
-
-  // Total line
-  datasets.push({
-    label: 'Total',
-    data: sortedGroups.map(g => grouped[g].total),
-    borderColor: '#1B2A4A', borderWidth: 2,
-    backgroundColor: 'transparent',
-    tension: 0.3, pointRadius: 3, borderDash: [4, 3],
-  });
-
-  return { labels, datasets };
-}
-
-function renderPostingTrendChart() {
-  const tdata = buildTrendData(APP.postByDate, APP.trendMode.post);
-  mkChart('chart-post-trend', 'line', tdata, {
-    scales: { x: { grid: { display: false } }, y: { beginAtZero: true } },
-    plugins: { legend: { position: 'bottom' } },
-  });
-}
-
-function renderPostingMetricsChart() {
-  const boards = Object.keys(APP.boardPost);
-  mkChart('chart-post-metrics', 'bar', {
-    labels: boards,
-    datasets: [
-      { label: 'Views', data: boards.map(b => APP.boardPost[b].views), backgroundColor: '#0277BD88', borderRadius: 3 },
-      { label: 'Applications', data: boards.map(b => APP.boardPost[b].applications), backgroundColor: '#00897B88', borderRadius: 3 },
-    ],
-  }, {
-    scales: { x: { grid: { display: false } }, y: { beginAtZero: true } },
-    plugins: { legend: { position: 'bottom' } },
-  });
-}
-
-function renderSearchBarChart() {
-  const boards = Object.keys(APP.boardSrch);
-  if (!boards.length) return;
-  mkChart('chart-srch-bar', 'bar', {
-    labels: boards,
-    datasets: [
-      { label: 'Searches / Sends', data: boards.map(b => APP.boardSrch[b].searches), backgroundColor: '#0077B588', borderRadius: 3 },
-      { label: 'Views / Fetches',  data: boards.map(b => APP.boardSrch[b].views),    backgroundColor: '#00897B88', borderRadius: 3 },
-      { label: 'Contacts',         data: boards.map(b => APP.boardSrch[b].contacts), backgroundColor: '#7B2FBE88', borderRadius: 3 },
-    ],
-  }, {
-    scales: { x: { grid: { display: false } }, y: { beginAtZero: true } },
-    plugins: { legend: { position: 'bottom' } },
-  });
-}
-
-function renderSearchPieChart() {
-  const boards = Object.keys(APP.boardSrch);
-  if (!boards.length) return;
-  mkChart('chart-srch-pie', 'doughnut', {
-    labels: boards,
-    datasets: [{
-      data: boards.map(b => APP.boardSrch[b].views),
-      backgroundColor: boards.map(b => boardColor(b) + 'CC'),
-      hoverOffset: 6,
-    }],
-  }, {
-    plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 } } } },
-    cutout: '62%',
-  });
-}
-
-function renderSearchTrendChart() {
-  const tdata = buildTrendData(APP.srchByDate, APP.trendMode.srch);
-  mkChart('chart-srch-trend', 'line', tdata, {
-    scales: { x: { grid: { display: false } }, y: { beginAtZero: true } },
-    plugins: { legend: { position: 'bottom' } },
-  });
-}
-
-function renderInmailChart() {
-  // LinkedIn InMail recruiters from srchRecs
-  const liRecs = APP.fSrchRecs.filter(r => r.board === 'LinkedIn' && r.recruiter);
-  if (!liRecs.length) { document.getElementById('chart-inmail').closest('.chart-card.wide').style.display = 'none'; return; }
-  document.getElementById('chart-inmail').closest('.chart-card.wide').style.display = '';
-  // Group by recruiter
-  const byRec = {};
-  liRecs.forEach(r => {
-    if (!byRec[r.recruiter]) byRec[r.recruiter] = { sends: 0, responses: 0, contacts: 0 };
-    byRec[r.recruiter].sends     += r.searches || 0;
-    byRec[r.recruiter].responses += r.responses|| 0;
-    byRec[r.recruiter].contacts  += r.contacts || 0;
-  });
-  const recs = Object.keys(byRec).sort((a,b) => byRec[b].sends - byRec[a].sends);
-  mkChart('chart-inmail', 'bar', {
-    labels: recs,
-    datasets: [
-      { label: 'InMail Sends',    data: recs.map(r => byRec[r].sends),     backgroundColor: '#0077B588', borderRadius: 3 },
-      { label: 'Responses',       data: recs.map(r => byRec[r].responses), backgroundColor: '#00897B88', borderRadius: 3 },
-      { label: 'Accepts',         data: recs.map(r => byRec[r].contacts),  backgroundColor: '#F59E0B88', borderRadius: 3 },
-    ],
-  }, {
-    scales: { x: { grid: { display: false } }, y: { beginAtZero: true } },
-    plugins: { legend: { position: 'bottom' } },
-  });
-}
-
-function renderRecruiterPostChart() {
-  const SKIP = new Set(['system','total','grand total']);
-  const recs = Object.entries(APP.recPost)
-    .filter(([n]) => n.length > 1 && !SKIP.has(n.toLowerCase().trim()))
-    .sort((a,b) => b[1].jobs - a[1].jobs)
-    .slice(0, 20);
-  if (!recs.length) return;
-  mkChart('chart-rec-post', 'bar', {
-    labels: recs.map(([n]) => n),
-    datasets: [{
-      label: 'Jobs Posted',
-      data: recs.map(([,v]) => v.jobs),
-      backgroundColor: '#1B2A4A88', borderRadius: 4,
-    }],
-  }, {
-    indexAxis: 'y',
-    plugins: { legend: { display: false } },
-    scales: { x: { beginAtZero: true }, y: { grid: { display: false } } },
-  });
-}
-
-function renderRecruiterSrchChart() {
-  const SKIP = new Set(['system','total','grand total']);
-  const recs = Object.entries(APP.recSrch)
-    .filter(([n]) => n.length > 1 && !SKIP.has(n.toLowerCase().trim()))
-    .sort((a,b) => b[1].views - a[1].views)
-    .slice(0, 15);
-  if (!recs.length) return;
-  mkChart('chart-rec-srch', 'bar', {
-    labels: recs.map(([n]) => n),
-    datasets: [{
-      label: 'Resumes Viewed',
-      data: recs.map(([,v]) => v.views),
-      backgroundColor: '#00897B88', borderRadius: 4,
-    }],
-  }, {
-    indexAxis: 'y',
-    plugins: { legend: { display: false } },
-    scales: { x: { beginAtZero: true }, y: { grid: { display: false } } },
-  });
-}
+function buildTrendData() { return { labels: [], datasets: [] }; }
+function renderPostingBarChart() {}
+function renderPostingPieChart() {}
+function renderPostingTrendChart() {}
+function renderPostingMetricsChart() {}
+function renderSearchBarChart() {}
+function renderSearchPieChart() {}
+function renderSearchTrendChart() {}
+function renderInmailChart() {}
+function renderRecruiterPostChart() {}
+function renderRecruiterSrchChart() {}
 
 // ── TABLES ────────────────────────────────────────────────
 function renderTables() {
@@ -1040,6 +955,7 @@ function renderTables() {
   renderRecruiterPostMatrix();
   renderRecruiterSrchMatrix();
   renderExecPortalOverview();  // portal tables in Executive KPI section
+  renderBoardDetail();         // board-specific 2/3-table view
   // Refresh recruiter view overview too if it's active
   if (document.getElementById('recruiter-view')?.style.display !== 'none') {
     renderRvPortalOverview();
@@ -1085,6 +1001,225 @@ function renderSearchesTable() {
       <td>${recsList || '—'}</td>
     </tr>`;
   }).join('');
+}
+
+// ── BOARD DETAIL TABLES ───────────────────────────────────
+// Shows 2 tables for most boards, 3 for Vivian, when board filter is active
+
+function renderBoardDetail() {
+  const board      = document.getElementById('flt-board')?.value || '';
+  const detailView = document.getElementById('board-detail-view');
+  const sumView    = document.getElementById('board-summary-view');
+  const lbl        = document.getElementById('board-detail-lbl');
+
+  if (!board) {
+    if (detailView) detailView.style.display = 'none';
+    if (sumView)    sumView.style.display    = '';
+    if (lbl) lbl.textContent = 'Select a board from the filter above for a detailed view';
+    return;
+  }
+
+  if (detailView) detailView.style.display = '';
+  if (sumView)    sumView.style.display    = 'none';
+  if (lbl) lbl.textContent = board + ' — detailed view';
+
+  if (board === 'Vivian') {
+    renderVivianDetail();
+  } else {
+    renderTwoBoardTables(board);
+  }
+}
+
+function renderTwoBoardTables(board) {
+  const inner = document.getElementById('board-detail-inner');
+  if (!inner) return;
+
+  const posts   = APP.fPostRecs.filter(r => r.board === board);
+  const searches = APP.fSrchRecs.filter(r => r.board === board);
+  const color   = boardColor(board);
+
+  // ── Table 1: Postings ──
+  let html = `<div class="tbl-card" style="margin-bottom:16px">
+    <div class="tbl-hdr">
+      <span><span class="board-dot" style="background:${color}"></span>${board} — Job Postings</span>
+      <span class="tbl-hint">${posts.length} job${posts.length !== 1 ? 's' : ''}</span>
+    </div>
+    <div class="tbl-wrap"><table class="dtbl"><thead><tr>
+      <th>Job Title</th><th>Recruiter</th><th>Vertical</th><th>Date</th>
+      <th class="r">Views</th><th class="r">Applicants</th><th>Status</th>
+    </tr></thead><tbody>`;
+
+  if (!posts.length) {
+    html += `<tr><td colspan="7" class="empty-cell">No posting data for ${board}.</td></tr>`;
+  } else {
+    posts.slice().sort((a, b) => (b.date || 0) - (a.date || 0)).forEach(r => {
+      const status = r.active === true  ? '<span class="badge badge-green">Active</span>'
+                   : r.active === false ? '<span class="badge badge-grey">Closed</span>'
+                   : '<span class="badge badge-blue">Posted</span>';
+      html += `<tr>
+        <td>${r.jobTitle || '—'}</td>
+        <td>${r.recruiter || '—'}</td>
+        <td>${r.vertical || '—'}</td>
+        <td>${r.date ? dateFmt(r.date) : '—'}</td>
+        <td class="r">${fmtNum(r.views)}</td>
+        <td class="r">${fmtNum(r.applications)}</td>
+        <td>${status}</td>
+      </tr>`;
+    });
+  }
+  html += '</tbody></table></div></div>';
+
+  // ── Table 2: Resume Searches ──
+  const byRec = {};
+  searches.forEach(r => {
+    const key = r.recruiter || 'System';
+    if (!byRec[key]) byRec[key] = { views: 0, searches: 0, contacts: 0, responses: 0 };
+    byRec[key].views     += r.views     || 0;
+    byRec[key].searches  += r.searches  || 0;
+    byRec[key].contacts  += r.contacts  || 0;
+    byRec[key].responses += r.responses || 0;
+  });
+  const recRows = Object.entries(byRec).sort((a, b) => b[1].views - a[1].views);
+
+  let hdr2, row2fn;
+  if (board === 'LinkedIn') {
+    hdr2 = `<th>Recruiter</th><th class="r">InMails Sent</th><th class="r">Responses</th><th class="r">Accepted</th><th class="r">Response Rate</th>`;
+    row2fn = ([rec, d]) => {
+      const rRate = d.searches > 0 ? (d.responses / d.searches * 100).toFixed(1) + '%' : '—';
+      return `<tr><td>${rec}</td><td class="r">${fmtNum(d.searches)}</td><td class="r">${fmtNum(d.responses)}</td><td class="r">${fmtNum(d.contacts)}</td><td class="r">${rRate}</td></tr>`;
+    };
+  } else if (board === 'Monster') {
+    hdr2 = `<th>Type</th><th class="r">Fetches</th>`;
+    row2fn = ([rec, d]) => `<tr><td>${rec}</td><td class="r">${fmtNum(d.views)}</td></tr>`;
+  } else {
+    hdr2 = `<th>Recruiter</th><th class="r">Resumes Viewed</th><th class="r">Contacts / Unlocks</th>`;
+    row2fn = ([rec, d]) => `<tr><td>${rec}</td><td class="r"><strong>${fmtNum(d.views)}</strong></td><td class="r">${d.contacts > 0 ? fmtNum(d.contacts) : '—'}</td></tr>`;
+  }
+
+  html += `<div class="tbl-card">
+    <div class="tbl-hdr">
+      <span><span class="board-dot" style="background:${color}"></span>${board} — Resume Activity</span>
+      <span class="tbl-hint">${searches.length} record${searches.length !== 1 ? 's' : ''}</span>
+    </div>
+    <div class="tbl-wrap"><table class="dtbl"><thead><tr>${hdr2}</tr></thead><tbody>`;
+
+  if (!recRows.length) {
+    html += `<tr><td colspan="5" class="empty-cell">No resume activity data for ${board}.</td></tr>`;
+  } else {
+    recRows.forEach(entry => { html += row2fn(entry); });
+  }
+  html += '</tbody></table></div></div>';
+  inner.innerHTML = html;
+}
+
+function renderVivianDetail() {
+  const inner = document.getElementById('board-detail-inner');
+  if (!inner) return;
+
+  const posts = APP.fPostRecs.filter(r => r.board === 'Vivian');
+  const cands = APP.fSrchRecs.filter(r => r.board === 'Vivian');
+  const color = boardColor('Vivian');
+
+  // ── Table 1: Vivian Job Postings ──
+  let html = `<div class="tbl-card" style="margin-bottom:16px">
+    <div class="tbl-hdr">
+      <span><span class="board-dot" style="background:${color}"></span>Vivian — Job Postings</span>
+      <span class="tbl-hint">${posts.length} posting${posts.length !== 1 ? 's' : ''}</span>
+    </div>
+    <div class="tbl-wrap"><table class="dtbl"><thead><tr>
+      <th>Recruiter</th><th>Date</th><th>Job Title</th>
+      <th class="r">Inbound</th><th class="r">Proposals</th><th class="r">Total Applicants</th><th>Status</th>
+    </tr></thead><tbody>`;
+
+  if (!posts.length) {
+    html += `<tr><td colspan="7" class="empty-cell">No Vivian posting data.</td></tr>`;
+  } else {
+    posts.slice().sort((a, b) => (b.date || 0) - (a.date || 0)).forEach(r => {
+      const status = r.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-grey">Inactive</span>';
+      html += `<tr>
+        <td>${r.recruiter || '—'}</td>
+        <td>${r.date ? dateFmt(r.date) : '—'}</td>
+        <td>${r.jobTitle || '—'}</td>
+        <td class="r">${fmtNum(r.inbound || 0)}</td>
+        <td class="r">${fmtNum(r.proposal || 0)}</td>
+        <td class="r"><strong>${fmtNum(r.applications)}</strong></td>
+        <td>${status}</td>
+      </tr>`;
+    });
+  }
+  html += '</tbody></table></div></div>';
+
+  // Split candidates by tier
+  const premCands = cands.filter(r => r.isPremium);
+  const stdCands  = cands.filter(r => !r.isPremium);
+
+  // ── Table 2: Premium Candidate Activity ──
+  html += _vivianCandTable('Vivian — Premium Candidate Activity', premCands, color);
+
+  // ── Table 3: Standard Candidate Activity ──
+  html += _vivianCandTable('Vivian — Standard Candidate Activity', stdCands, color);
+
+  inner.innerHTML = html;
+}
+
+function _vivianCandTable(title, cands, color) {
+  const byRec = {};
+  cands.forEach(r => {
+    const key = r.recruiter || 'Unknown';
+    if (!byRec[key]) byRec[key] = { credits: 0, resumes: 0, contacts: 0, inbound: 0, proposal: 0 };
+    byRec[key].credits  += r.views    || 0;
+    byRec[key].resumes++;
+    byRec[key].contacts += r.contacts || 0;
+    byRec[key].inbound  += r.inbound  || 0;
+    byRec[key].proposal += r.proposal || 0;
+  });
+
+  const rows       = Object.entries(byRec).sort((a, b) => b[1].credits - a[1].credits);
+  const totCredits = rows.reduce((s, [, d]) => s + d.credits, 0);
+  const totResumes = rows.reduce((s, [, d]) => s + d.resumes, 0);
+
+  let html = `<div class="tbl-card" style="margin-bottom:16px">
+    <div class="tbl-hdr">
+      <span><span class="board-dot" style="background:${color}"></span>${title}</span>
+      <span class="tbl-hint">Total Resumes: ${fmtNum(totResumes)} &nbsp;·&nbsp; Total Credits: ${fmtNum(totCredits)}</span>
+    </div>
+    <div class="tbl-wrap"><table class="dtbl"><thead><tr>
+      <th>Recruiter</th>
+      <th class="r">Credits Used</th>
+      <th class="r">Total Resumes</th>
+      <th class="r">Inbound</th>
+      <th class="r">Proposal</th>
+      <th class="r">Granted Contacts</th>
+    </tr></thead><tbody>`;
+
+  if (!rows.length) {
+    html += `<tr><td colspan="6" class="empty-cell">No data.</td></tr>`;
+  } else {
+    rows.forEach(([rec, d]) => {
+      html += `<tr>
+        <td>${rec}</td>
+        <td class="r"><strong>${fmtNum(d.credits)}</strong></td>
+        <td class="r">${fmtNum(d.resumes)}</td>
+        <td class="r">${d.inbound  > 0 ? fmtNum(d.inbound)  : '<span class="zero">—</span>'}</td>
+        <td class="r">${d.proposal > 0 ? fmtNum(d.proposal) : '<span class="zero">—</span>'}</td>
+        <td class="r">${d.contacts > 0 ? fmtNum(d.contacts) : '<span class="zero">—</span>'}</td>
+      </tr>`;
+    });
+    // Totals row
+    const totContacts = rows.reduce((s, [, d]) => s + d.contacts, 0);
+    const totInbound  = rows.reduce((s, [, d]) => s + d.inbound, 0);
+    const totProp     = rows.reduce((s, [, d]) => s + d.proposal, 0);
+    html += `<tr class="matrix-total">
+      <td><strong>Total</strong></td>
+      <td class="r"><strong>${fmtNum(totCredits)}</strong></td>
+      <td class="r"><strong>${fmtNum(totResumes)}</strong></td>
+      <td class="r"><strong>${fmtNum(totInbound)}</strong></td>
+      <td class="r"><strong>${fmtNum(totProp)}</strong></td>
+      <td class="r"><strong>${fmtNum(totContacts)}</strong></td>
+    </tr>`;
+  }
+  html += '</tbody></table></div></div>';
+  return html;
 }
 
 function renderRecruitersTable() {
@@ -1427,7 +1562,7 @@ function renderOvPostings(wrapId, mode) {
     <th>Portal</th>
     <th class="r">Jobs Posted</th>
     <th class="r">Total Views</th>
-    <th class="r">Applications</th>
+    <th class="r">Applicants</th>
     <th class="r">Conv. Rate</th>
     ${spendHdr}
     <th class="r">Recruiters Active</th>

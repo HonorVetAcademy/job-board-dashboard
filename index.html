@@ -102,8 +102,6 @@
   <!-- NAV -->
   <nav id="dash-nav">
     <a class="nav-tab active" data-target="sec-kpis">Overview</a>
-    <a class="nav-tab" data-target="sec-postings">Job Postings</a>
-    <a class="nav-tab" data-target="sec-searches">Resume Activity</a>
     <a class="nav-tab" data-target="sec-boards">Board Details</a>
     <a class="nav-tab" data-target="sec-recruiters">Recruiters</a>
     <a class="nav-tab" data-target="sec-insights">Insights</a>
@@ -165,122 +163,62 @@
       </div>
     </section>
 
-    <!-- JOB POSTINGS ─────────────────────────────── -->
-    <section id="sec-postings" class="dash-sec">
-      <div class="sec-head"><h2>Job Posting Activity</h2></div>
-      <div class="chart-row">
-        <div class="chart-card">
-          <div class="chart-hdr">
-            <span>Jobs Posted by Board</span>
-            <button class="icon-btn" onclick="dlChart('chart-post-bar')">⬇</button>
-          </div>
-          <div class="chart-body"><canvas id="chart-post-bar"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-hdr">
-            <span>Posting Share</span>
-            <button class="icon-btn" onclick="dlChart('chart-post-pie')">⬇</button>
-          </div>
-          <div class="chart-body"><canvas id="chart-post-pie"></canvas></div>
-        </div>
-      </div>
-      <div class="chart-card wide">
-        <div class="chart-hdr">
-          <span>Posting Trends Over Time</span>
-          <div class="toggle-grp">
-            <button class="chip active" data-series="post" data-mode="daily" onclick="setMode(this)">Daily</button>
-            <button class="chip" data-series="post" data-mode="weekly" onclick="setMode(this)">Weekly</button>
-            <button class="icon-btn" onclick="dlChart('chart-post-trend')">⬇</button>
-          </div>
-        </div>
-        <div class="chart-body tall"><canvas id="chart-post-trend"></canvas></div>
-      </div>
-      <div class="chart-card wide">
-        <div class="chart-hdr"><span>Views &amp; Applications by Board</span></div>
-        <div class="chart-body"><canvas id="chart-post-metrics"></canvas></div>
-      </div>
-    </section>
-
-    <!-- RESUME ACTIVITY ──────────────────────────── -->
-    <section id="sec-searches" class="dash-sec">
-      <div class="sec-head"><h2>Resume Search &amp; View Activity</h2></div>
-      <div class="chart-row">
-        <div class="chart-card">
-          <div class="chart-hdr">
-            <span>Activity by Source</span>
-            <button class="icon-btn" onclick="dlChart('chart-srch-bar')">⬇</button>
-          </div>
-          <div class="chart-body"><canvas id="chart-srch-bar"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-hdr">
-            <span>Activity Share</span>
-            <button class="icon-btn" onclick="dlChart('chart-srch-pie')">⬇</button>
-          </div>
-          <div class="chart-body"><canvas id="chart-srch-pie"></canvas></div>
-        </div>
-      </div>
-      <div class="chart-card wide">
-        <div class="chart-hdr">
-          <span>Resume View Trends</span>
-          <div class="toggle-grp">
-            <button class="chip active" data-series="srch" data-mode="daily" onclick="setMode(this)">Daily</button>
-            <button class="chip" data-series="srch" data-mode="weekly" onclick="setMode(this)">Weekly</button>
-            <button class="icon-btn" onclick="dlChart('chart-srch-trend')">⬇</button>
-          </div>
-        </div>
-        <div class="chart-body tall"><canvas id="chart-srch-trend"></canvas></div>
-      </div>
-      <div class="chart-card wide">
-        <div class="chart-hdr"><span>LinkedIn InMail Performance</span></div>
-        <div class="chart-body"><canvas id="chart-inmail"></canvas></div>
-      </div>
-    </section>
 
     <!-- BOARD DETAILS ────────────────────────────── -->
     <section id="sec-boards" class="dash-sec">
-      <div class="sec-head"><h2>Board-Level Performance</h2></div>
-
-      <div class="tbl-card">
-        <div class="tbl-hdr">
-          <span>Posting Activity by Board</span>
-          <button class="btn btn-ghost sm" onclick="exportCSV('postings-tbl')">Export CSV</button>
-        </div>
-        <div class="tbl-wrap">
-          <table class="dtbl" id="dtbl-postings">
-            <thead><tr>
-              <th>Board</th>
-              <th class="r">Jobs Posted</th>
-              <th class="r">Total Views</th>
-              <th class="r">Applications</th>
-              <th class="r">Avg Views/Job</th>
-              <th class="r">Conv. Rate</th>
-              <th>Top Vertical</th>
-              <th class="r">Spend ($)</th>
-            </tr></thead>
-            <tbody id="dtbl-postings-body"></tbody>
-          </table>
-        </div>
+      <div class="sec-head">
+        <h2>Board-Level Performance</h2>
+        <span class="sec-sub" id="board-detail-lbl">Select a board from the filter above for a detailed view</span>
       </div>
 
-      <div class="tbl-card">
-        <div class="tbl-hdr">
-          <span>Resume Activity by Source</span>
-          <button class="btn btn-ghost sm" onclick="exportCSV('searches-tbl')">Export CSV</button>
+      <!-- Board-specific detail (shown when board filter is active) -->
+      <div id="board-detail-view" style="display:none">
+        <div id="board-detail-inner"></div>
+      </div>
+
+      <!-- All-boards summary (shown when no board filter) -->
+      <div id="board-summary-view">
+        <div class="tbl-card">
+          <div class="tbl-hdr">
+            <span>Job Postings by Board</span>
+            <button class="btn btn-ghost sm" onclick="exportCSV('postings-tbl')">Export CSV</button>
+          </div>
+          <div class="tbl-wrap">
+            <table class="dtbl" id="dtbl-postings">
+              <thead><tr>
+                <th>Board</th>
+                <th class="r">Jobs Posted</th>
+                <th class="r">Total Views</th>
+                <th class="r">Applicants</th>
+                <th class="r">Avg Views/Job</th>
+                <th class="r">Conv. Rate</th>
+                <th>Top Vertical</th>
+                <th class="r">Spend ($)</th>
+              </tr></thead>
+              <tbody id="dtbl-postings-body"></tbody>
+            </table>
+          </div>
         </div>
-        <div class="tbl-wrap">
-          <table class="dtbl" id="dtbl-searches">
-            <thead><tr>
-              <th>Source / Board</th>
-              <th class="r">Searches / Sends</th>
-              <th class="r">Views / Fetches</th>
-              <th class="r">Contacts / Unlocks</th>
-              <th class="r">Responses</th>
-              <th class="r">Resp. Rate</th>
-              <th>Active Recruiters</th>
-            </tr></thead>
-            <tbody id="dtbl-searches-body"></tbody>
-          </table>
+
+        <div class="tbl-card">
+          <div class="tbl-hdr">
+            <span>Resume Activity by Source</span>
+            <button class="btn btn-ghost sm" onclick="exportCSV('searches-tbl')">Export CSV</button>
+          </div>
+          <div class="tbl-wrap">
+            <table class="dtbl" id="dtbl-searches">
+              <thead><tr>
+                <th>Source / Board</th>
+                <th class="r">Searches / Sends</th>
+                <th class="r">Views / Credits</th>
+                <th class="r">Contacts / Unlocks</th>
+                <th class="r">Responses</th>
+                <th class="r">Resp. Rate</th>
+                <th>Active Recruiters</th>
+              </tr></thead>
+              <tbody id="dtbl-searches-body"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -288,22 +226,6 @@
     <!-- RECRUITERS ───────────────────────────────── -->
     <section id="sec-recruiters" class="dash-sec">
       <div class="sec-head"><h2>Recruiter Activity</h2></div>
-      <div class="chart-row">
-        <div class="chart-card" style="flex:1.6">
-          <div class="chart-hdr">
-            <span>Postings by Recruiter</span>
-            <button class="icon-btn" onclick="dlChart('chart-rec-post')">⬇</button>
-          </div>
-          <div class="chart-body tall"><canvas id="chart-rec-post"></canvas></div>
-        </div>
-        <div class="chart-card" style="flex:1">
-          <div class="chart-hdr">
-            <span>Resumes Viewed by Recruiter</span>
-            <button class="icon-btn" onclick="dlChart('chart-rec-srch')">⬇</button>
-          </div>
-          <div class="chart-body tall"><canvas id="chart-rec-srch"></canvas></div>
-        </div>
-      </div>
       <!-- Recruiter sub-tabs -->
       <div class="rec-tabs">
         <button class="rec-tab active" onclick="switchRecTab(this,'rec-summary')">📊 Summary</button>
