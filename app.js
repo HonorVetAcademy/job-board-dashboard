@@ -1565,6 +1565,10 @@ function switchView(view) {
 function applyExecView() {
   document.getElementById('vtog-exec').classList.add('active');
   document.getElementById('vtog-rec').classList.remove('active');
+  document.body.classList.add('exec-mode');
+  document.body.classList.remove('rec-mode');
+  const badge = document.getElementById('view-mode-badge');
+  if (badge) badge.innerHTML = '<span class="exec-badge">Executive View</span>';
   ['sec-kpis','sec-postings','sec-searches','sec-boards','sec-recruiters','sec-insights'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = '';
@@ -1577,6 +1581,10 @@ function applyExecView() {
 function applyRecruiterView() {
   document.getElementById('vtog-exec').classList.remove('active');
   document.getElementById('vtog-rec').classList.add('active');
+  document.body.classList.add('rec-mode');
+  document.body.classList.remove('exec-mode');
+  const badge = document.getElementById('view-mode-badge');
+  if (badge) badge.innerHTML = '<span class="rec-badge">Recruiter View</span>';
   ['sec-kpis','sec-postings','sec-searches','sec-boards','sec-recruiters','sec-insights'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -1593,8 +1601,54 @@ function applyRecruiterView() {
 //        'recruiter' = usage only; Indeed budget shown, all other spend hidden
 
 function renderRvPortalOverview() {
-  renderOvPostings('rv-ov-post-wrap', 'recruiter');
-  renderOvSearches('rv-ov-srch-wrap');
+  renderRvCompanyPostings('rv-ov-post-wrap');
+  renderRvCompanySearches('rv-ov-srch-wrap');
+}
+
+function renderRvCompanyPostings(wrapId) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const boards = Object.entries(APP.boardPost).sort((a,b) => b[1].jobs - a[1].jobs);
+  let html = `<table class="dtbl"><thead><tr>
+    <th>Job Board</th>
+    <th class="r">Postings</th>
+    <th class="r">Views / Impressions</th>
+    <th class="r">Applicants</th>
+  </tr></thead><tbody>`;
+  if (!boards.length) {
+    html += `<tr><td colspan="4" class="empty-cell">No posting data.</td></tr>`;
+  } else {
+    html += boards.map(([bd, d]) => `<tr>
+      <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
+      <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
+      <td class="r">${fmtNum(d.views)}</td>
+      <td class="r">${fmtNum(d.applications)}</td>
+    </tr>`).join('');
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function renderRvCompanySearches(wrapId) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const boards = Object.entries(APP.boardSrch).sort((a,b) => b[1].views - a[1].views);
+  let html = `<table class="dtbl"><thead><tr>
+    <th>Database / Source</th>
+    <th class="r">Candidates Sourced</th>
+    <th>Period</th>
+  </tr></thead><tbody>`;
+  if (!boards.length) {
+    html += `<tr><td colspan="3" class="empty-cell">No sourcing data.</td></tr>`;
+  } else {
+    html += boards.map(([bd, d]) => `<tr>
+      <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
+      <td class="r"><strong>${fmtNum(d.views)}</strong></td>
+      <td>${fmtPeriod(d.minDate, d.maxDate)}</td>
+    </tr>`).join('');
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
 }
 
 function renderExecPortalOverview() {
@@ -1784,17 +1838,17 @@ function renderRecruiterView() {
 }
 
 function renderRvKpis(name) {
-  const p = APP.recPost[name]  || { jobs:0, views:0, applications:0, boards: new Set() };
-  const s = APP.recSrch[name] || { views:0, boards: new Set() };
+  const p   = APP.recPost[name]  || { jobs:0, views:0, applications:0, boards: new Set() };
+  const s   = APP.recSrch[name] || { views:0, boards: new Set() };
   const pbb = APP.recPostByBoard[name] || {};
-  const conv = p.views > 0 ? (p.applications/p.views*100).toFixed(1)+'%' : '0%';
+  const sbb = APP.recSrchByBoard[name] || {};
+  const boardCount = new Set([...Object.keys(pbb), ...Object.keys(sbb)]).size;
   const cards = [
-    { label:'Jobs Posted',     val: fmtNum(p.jobs),         icon:'📋', cls:'c-navy'    },
-    { label:'Total Views',     val: fmtNum(p.views),        icon:'👁',  cls:'c-sky'     },
-    { label:'Applications',    val: fmtNum(p.applications), icon:'📩', cls:'c-teal'    },
-    { label:'Conv. Rate',      val: conv,                   icon:'📈', cls:'c-success'  },
-    { label:'Resumes Viewed',  val: fmtNum(s.views),        icon:'🔍', cls:'c-purple'  },
-    { label:'Portals Active',  val: Object.keys(pbb).length, icon:'🏢', cls:'c-orange' },
+    { label:'Jobs Posted',        val: fmtNum(p.jobs),         icon:'📋', cls:'c-navy'   },
+    { label:'Total Views',        val: fmtNum(p.views),        icon:'👁',  cls:'c-sky'    },
+    { label:'Applications',       val: fmtNum(p.applications), icon:'📩', cls:'c-teal'   },
+    { label:'Candidates Sourced', val: fmtNum(s.views),        icon:'🔍', cls:'c-purple' },
+    { label:'Boards & Databases', val: boardCount,             icon:'🏢', cls:'c-orange' },
   ];
   document.getElementById('rv-kpis').innerHTML = cards.map(c => `
     <div class="kpi-card ${c.cls}">
@@ -1809,40 +1863,27 @@ function renderRvKpis(name) {
 function renderRvPortalTable(name) {
   const tbody = document.getElementById('rv-portal-body');
   if (!tbody) return;
-  const alloc  = loadAllocations();
-  const pbb    = APP.recPostByBoard[name] || {};
+  const pbb     = APP.recPostByBoard[name] || {};
   const myPosts = APP.fPostRecs.filter(r => r.recruiter === name);
   const boards  = Object.keys(pbb).sort((a,b) => pbb[b].jobs - pbb[a].jobs);
 
   if (!boards.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">No posting data found for this recruiter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">No posting data found for this recruiter.</td></tr>';
     return;
   }
   tbody.innerHTML = boards.map(bd => {
-    const d  = pbb[bd];
-    const al = alloc[bd] || null;
-    const activePosts  = myPosts.filter(r => r.board === bd && r.active === true).length;
-    // If active field not parsed, use total (treat all as posted)
-    const hasActive    = myPosts.some(r => r.board === bd && r.active !== undefined);
-    const activeCount  = hasActive ? activePosts : d.jobs;
-    const closedCount  = hasActive ? (d.jobs - activePosts) : 0;
-    const available    = al !== null ? Math.max(0, al - d.jobs) : null;
-    const conv         = d.views > 0 ? (d.applications/d.views*100).toFixed(1)+'%' : '—';
-    const color        = boardColor(bd);
-    const availHtml    = available === null ? '<span class="zero">—</span>'
-                        : available > 0
-                          ? `<span class="badge badge-blue">${available}</span>`
-                          : `<span class="badge badge-warn">0</span>`;
+    const d          = pbb[bd];
+    const color      = boardColor(bd);
+    const hasActive  = myPosts.some(r => r.board === bd && r.active !== undefined);
+    const activeCount = hasActive
+      ? myPosts.filter(r => r.board === bd && r.active === true).length
+      : d.jobs;
     return `<tr>
       <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
-      <td class="r">${al ? `<strong>${al}</strong>` : '<span class="zero">—</span>'}</td>
       <td class="r"><strong>${d.jobs}</strong></td>
       <td class="r"><span class="badge badge-green">${activeCount}</span></td>
-      <td class="r">${closedCount > 0 ? `<span class="badge badge-grey">${closedCount}</span>` : '<span class="zero">—</span>'}</td>
-      <td class="r">${availHtml}</td>
       <td class="r">${fmtNum(d.views)}</td>
       <td class="r">${fmtNum(d.applications)}</td>
-      <td class="r">${conv}</td>
     </tr>`;
   }).join('');
 }
@@ -1855,22 +1896,19 @@ function renderRvJobsList(name) {
     .sort((a,b) => (b.date||0) - (a.date||0));
 
   if (!myPosts.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No job postings found for this recruiter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">No job postings found for this recruiter.</td></tr>';
     return;
   }
   tbody.innerHTML = myPosts.map(r => {
-    const conv  = r.views > 0 ? (r.applications/r.views*100).toFixed(1)+'%' : '—';
     const status = r.active === true  ? '<span class="badge badge-green">Active</span>'
                  : r.active === false ? '<span class="badge badge-grey">Closed</span>'
                  : '<span class="badge badge-blue">Posted</span>';
     return `<tr>
       <td>${r.jobTitle || '—'}</td>
       <td><span class="board-dot" style="background:${boardColor(r.board)}"></span>${r.board}</td>
-      <td>${r.vertical || '—'}</td>
       <td>${r.date ? dateFmt(r.date) : '—'}</td>
       <td class="r">${fmtNum(r.views)}</td>
       <td class="r">${fmtNum(r.applications)}</td>
-      <td class="r">${conv}</td>
       <td>${status}</td>
     </tr>`;
   }).join('');
@@ -1882,13 +1920,17 @@ function renderRvSearchActivity(name) {
   const sbb = APP.recSrchByBoard[name] || {};
   const rows = Object.entries(sbb).sort((a,b) => b[1].views - a[1].views);
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="2" class="empty-cell">No resume search data found for this recruiter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" class="empty-cell">No resume search data found for this recruiter.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(([bd, d]) => `<tr>
-    <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
-    <td class="r">${fmtNum(d.views)}</td>
-  </tr>`).join('');
+  tbody.innerHTML = rows.map(([bd, d]) => {
+    const bSrch = APP.boardSrch[bd] || {};
+    return `<tr>
+      <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
+      <td class="r"><strong>${fmtNum(d.views)}</strong></td>
+      <td>${fmtPeriod(bSrch.minDate, bSrch.maxDate)}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── ALLOCATIONS ───────────────────────────────────────────
@@ -1906,7 +1948,7 @@ function saveAllocations() {
   closeAllocModal();
   renderPostingsTable();
   renderOvPostings('exec-ov-post-wrap', 'exec');
-  renderOvPostings('rv-ov-post-wrap', 'recruiter');
+  renderRvCompanyPostings('rv-ov-post-wrap');
   renderBoardDetail();
   renderRecruiterView();
 }

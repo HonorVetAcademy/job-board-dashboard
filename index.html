@@ -83,6 +83,7 @@
         <button class="vtog" id="vtog-exec" onclick="switchView('exec')">🔒 Executive</button>
         <button class="vtog active" id="vtog-rec" onclick="switchView('recruiter')">Recruiter</button>
       </div>
+      <div id="view-mode-badge"><span class="rec-badge">Recruiter View</span></div>
       <button class="btn btn-ghost sm" onclick="goUpload()">↑ Upload New</button>
       <div class="menu-wrap">
         <button class="btn btn-primary sm" onclick="toggleMenu('export-menu')">Export ▾</button>
@@ -300,18 +301,17 @@
       <!-- ── Portal Overview (always visible, no recruiter needed) ── -->
       <div class="rv-overview">
         <div class="rv-ov-head">
-          <h2 class="rv-ov-title">Company-Wide Portal Summary</h2>
+          <h2 class="rv-ov-title">Company-Wide Activity Summary</h2>
           <span class="sec-sub">All recruiters · Current filter period</span>
-          <button class="btn btn-ghost sm" onclick="exportCSV('rv-overview')" style="margin-left:auto">Export CSV</button>
         </div>
 
         <div class="tbl-card">
-          <div class="tbl-hdr"><span>Job Postings by Portal</span></div>
+          <div class="tbl-hdr"><span>Job Postings by Board</span></div>
           <div class="tbl-wrap" id="rv-ov-post-wrap"></div>
         </div>
 
         <div class="tbl-card rv-ov-card2">
-          <div class="tbl-hdr"><span>Resume Activity by Portal</span></div>
+          <div class="tbl-hdr"><span>Resume &amp; Database Sourcing</span></div>
           <div class="tbl-wrap" id="rv-ov-srch-wrap"></div>
         </div>
       </div>
@@ -324,7 +324,6 @@
             <option value="">— Select a recruiter —</option>
           </select>
         </div>
-        <button class="btn btn-outline sm" onclick="openAllocModal()">⚙ Set Portal Allocations</button>
       </div>
 
       <!-- Personal KPIs -->
@@ -335,22 +334,17 @@
       <!-- Portal Summary -->
       <div class="tbl-card rv-section">
         <div class="tbl-hdr">
-          <span>Portal Activity Summary</span>
-          <span class="tbl-hint">Click "⚙ Set Portal Allocations" to track posting slots per board</span>
+          <span>My Posting Activity by Board</span>
           <button class="btn btn-ghost sm" onclick="exportCSV('rv-portal')">Export CSV</button>
         </div>
         <div class="tbl-wrap">
           <table class="dtbl">
             <thead><tr>
               <th>Portal</th>
-              <th class="r">Allocated Slots</th>
               <th class="r">Jobs Posted</th>
               <th class="r">Active</th>
-              <th class="r">Closed / Filled</th>
-              <th class="r">Slots Available</th>
-              <th class="r">Total Views</th>
+              <th class="r">Views / Impressions</th>
               <th class="r">Applications</th>
-              <th class="r">Conv. Rate</th>
             </tr></thead>
             <tbody id="rv-portal-body"></tbody>
           </table>
@@ -368,11 +362,9 @@
             <thead><tr>
               <th>Job Title</th>
               <th>Portal</th>
-              <th>Vertical</th>
               <th>Date Posted</th>
               <th class="r">Views</th>
               <th class="r">Applications</th>
-              <th class="r">Conv. %</th>
               <th>Status</th>
             </tr></thead>
             <tbody id="rv-jobs-body"></tbody>
@@ -383,14 +375,15 @@
       <!-- Resume Activity -->
       <div class="tbl-card rv-section">
         <div class="tbl-hdr">
-          <span>My Resume Search Activity</span>
+          <span>My Candidate Sourcing Activity</span>
           <button class="btn btn-ghost sm" onclick="exportCSV('rv-search')">Export CSV</button>
         </div>
         <div class="tbl-wrap">
           <table class="dtbl">
             <thead><tr>
               <th>Source / Board</th>
-              <th class="r">Resumes Viewed</th>
+              <th class="r">Candidates Sourced</th>
+              <th>Period</th>
             </tr></thead>
             <tbody id="rv-srch-body"></tbody>
           </table>
