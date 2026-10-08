@@ -591,13 +591,18 @@ function aggregate() {
   // Posting records
   for (const r of APP.fPostRecs) {
     const b = r.board;
-    if (!APP.boardPost[b]) APP.boardPost[b] = { jobs: 0, views: 0, applications: 0, spend: 0, recruiters: new Set(), verticals: new Set() };
+    if (!APP.boardPost[b]) APP.boardPost[b] = { jobs: 0, views: 0, applications: 0, spend: 0, recruiters: new Set(), verticals: new Set(), activeJobs: 0, minDate: null, maxDate: null };
     APP.boardPost[b].jobs++;
     APP.boardPost[b].views += r.views;
     APP.boardPost[b].applications += r.applications;
     APP.boardPost[b].spend += r.spend || 0;
     if (r.recruiter) APP.boardPost[b].recruiters.add(r.recruiter);
     if (r.vertical)  APP.boardPost[b].verticals.add(r.vertical);
+    if (r.active) APP.boardPost[b].activeJobs++;
+    if (r.date) {
+      if (!APP.boardPost[b].minDate || r.date < APP.boardPost[b].minDate) APP.boardPost[b].minDate = r.date;
+      if (!APP.boardPost[b].maxDate || r.date > APP.boardPost[b].maxDate) APP.boardPost[b].maxDate = r.date;
+    }
 
     if (r.recruiter) {
       if (!APP.recPost[r.recruiter]) APP.recPost[r.recruiter] = { jobs: 0, views: 0, applications: 0, boards: new Set(), vertical: r.vertical || '' };
@@ -624,12 +629,16 @@ function aggregate() {
   // Search records
   for (const r of APP.fSrchRecs) {
     const b = r.board;
-    if (!APP.boardSrch[b]) APP.boardSrch[b] = { searches: 0, views: 0, contacts: 0, responses: 0, recruiters: new Set() };
+    if (!APP.boardSrch[b]) APP.boardSrch[b] = { searches: 0, views: 0, contacts: 0, responses: 0, recruiters: new Set(), minDate: null, maxDate: null };
     APP.boardSrch[b].searches += r.searches || 0;
     APP.boardSrch[b].views    += r.views    || 0;
     APP.boardSrch[b].contacts += r.contacts || 0;
     APP.boardSrch[b].responses+= r.responses|| 0;
     if (r.recruiter) APP.boardSrch[b].recruiters.add(r.recruiter);
+    if (r.date) {
+      if (!APP.boardSrch[b].minDate || r.date < APP.boardSrch[b].minDate) APP.boardSrch[b].minDate = r.date;
+      if (!APP.boardSrch[b].maxDate || r.date > APP.boardSrch[b].maxDate) APP.boardSrch[b].maxDate = r.date;
+    }
 
     if (r.recruiter) {
       if (!APP.recSrch[r.recruiter]) APP.recSrch[r.recruiter] = { views: 0, boards: new Set() };
@@ -713,6 +722,13 @@ function populateFilters() {
   sel('flt-board', boards);
   sel('flt-vertical', verticals);
   sel('flt-recruiter', recruiters);
+}
+
+function fmtPeriod(min, max) {
+  if (!min && !max) return '—';
+  const mn = dateFmt(min || max, 'Mon D');
+  const mx = dateFmt(max || min, 'Mon D');
+  return mn === mx ? mn : mn + ' – ' + mx;
 }
 
 // ── BOARD-SPECIFIC KPI CARDS ──────────────────────────────
@@ -830,104 +846,71 @@ function getBoardKpis(board) {
 // ── KPI CARDS ─────────────────────────────────────────────
 function renderKPIs() {
   const selectedBoard = document.getElementById('flt-board')?.value || '';
+  const gridPost = document.getElementById('kpi-grid-postings');
+  const gridSrc  = document.getElementById('kpi-grid-sourcing');
+  const grpSrc   = document.getElementById('kpi-group-sourcing');
+  const grpPost  = document.getElementById('kpi-group-postings');
+  const lbl      = document.getElementById('kpi-lbl');
+
+  function kCard(c) {
+    return `<div class="kpi-card ${c.cls || ''}">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${c.value}</div>
+      <div class="kpi-sub">${c.sub || ''}</div>
+    </div>`;
+  }
 
   // Board-specific KPIs when a board is selected
   if (selectedBoard) {
     const cards = getBoardKpis(selectedBoard);
-    document.getElementById('kpi-grid').innerHTML = cards.map(c => `
-      <div class="kpi-card ${c.cls}">
-        <div class="kpi-label">${c.icon} ${c.label}</div>
-        <div class="kpi-value">${c.value}</div>
-        <div class="kpi-sub">${selectedBoard} — filtered data</div>
-      </div>`).join('');
-    const lbl = document.getElementById('kpi-lbl');
-    if (lbl) lbl.textContent = selectedBoard + ' board data';
+    if (gridPost) gridPost.innerHTML = cards.map(kCard).join('');
+    if (gridSrc)  gridSrc.innerHTML  = '';
+    if (grpSrc)   grpSrc.style.display = 'none';
+    if (grpPost)  { const gl = grpPost.querySelector('.kpi-group-label'); if (gl) gl.textContent = selectedBoard + ' — Board Stats'; }
+    if (lbl) lbl.textContent = selectedBoard + ' — filtered data';
     return;
   }
 
-  const totalJobs  = APP.fPostRecs.length;
-  const totalViews = APP.fPostRecs.reduce((s, r) => s + r.views, 0);
-  const totalApps  = APP.fPostRecs.reduce((s, r) => s + r.applications, 0);
-  const totalSrch  = APP.fSrchRecs.reduce((s, r) => s + (r.views || 0), 0);
-  const totalSpend = APP.fPostRecs.reduce((s, r) => s + (r.spend || 0), 0);
+  // Restore two-group view when no board filter
+  if (grpSrc)  grpSrc.style.display  = '';
+  if (grpPost) { const gl = grpPost.querySelector('.kpi-group-label'); if (gl) gl.textContent = 'Job Postings'; }
 
-  const boardsByPost = Object.entries(APP.boardPost).sort((a, b) => b[1].jobs - a[1].jobs);
-  const topPost  = boardsByPost[0];
-  const leastPost= boardsByPost[boardsByPost.length - 1];
+  const totalJobs     = APP.fPostRecs.length;
+  const totalViews    = APP.fPostRecs.reduce((s, r) => s + r.views, 0);
+  const totalApps     = APP.fPostRecs.reduce((s, r) => s + r.applications, 0);
+  const totalSpend    = APP.fPostRecs.reduce((s, r) => s + (r.spend || 0), 0);
+  const totalContacts = APP.fSrchRecs.reduce((s, r) => s + (r.contacts || 0), 0);
+  const totalSrchRecs = APP.fSrchRecs.length;
+  const boardsWithPosts = Object.keys(APP.boardPost).length;
 
-  const allRecruiterNames = new Set([
-    ...Object.keys(APP.recPost),
-    ...Object.keys(APP.recSrch),
-  ]);
-  const activeRecs = [...allRecruiterNames].filter(r => r && r.length > 1).length;
+  const topSrcEntry = Object.entries(APP.recSrch).sort((a, b) => b[1].views - a[1].views)[0];
 
-  // WoW & MoM growth (compare posting counts by week/month)
-  const dateSorted = Object.keys(APP.postByDate).sort();
-  let wowGrowth = null, momGrowth = null;
-  if (dateSorted.length > 0) {
-    const lastDate = new Date(dateSorted[dateSorted.length - 1]);
-    const thisWeekStart = new Date(lastDate); thisWeekStart.setDate(lastDate.getDate() - 6);
-    const prevWeekStart = new Date(thisWeekStart); prevWeekStart.setDate(thisWeekStart.getDate() - 7);
-    let thisW = 0, prevW = 0;
-    for (const [dk, v] of Object.entries(APP.postByDate)) {
-      const d = new Date(dk);
-      if (d >= thisWeekStart && d <= lastDate) thisW += v.total;
-      if (d >= prevWeekStart && d < thisWeekStart) prevW += v.total;
-    }
-    if (prevW > 0) wowGrowth = (thisW - prevW) / prevW;
-    else if (thisW > 0) wowGrowth = 1;
-
-    const thisMonth = lastDate.getMonth();
-    const thisYear  = lastDate.getFullYear();
-    let thisMo = 0, prevMo = 0;
-    for (const [dk, v] of Object.entries(APP.postByDate)) {
-      const d = new Date(dk);
-      if (d.getFullYear() === thisYear && d.getMonth() === thisMonth) thisMo += v.total;
-      if (d.getFullYear() === thisYear && d.getMonth() === thisMonth - 1) prevMo += v.total;
-      if (thisMonth === 0 && d.getFullYear() === thisYear - 1 && d.getMonth() === 11) prevMo += v.total;
-    }
-    if (prevMo > 0) momGrowth = (thisMo - prevMo) / prevMo;
+  const postCards = [
+    { label: 'Live Postings',         value: fmtNum(totalJobs),   sub: `across ${boardsWithPosts} board${boardsWithPosts !== 1 ? 's' : ''}` },
+    { label: 'Applicants',            value: fmtNum(totalApps),   sub: 'candidate applies' },
+    { label: 'Views & Impressions',   value: fmtNum(totalViews),  sub: 'across all boards' },
+  ];
+  if (totalSpend > 0) {
+    postCards.push({ label: 'Ad Spend', value: fmtDol(totalSpend), sub: 'paid job boards', cls: 'c-navy' });
   }
 
-  function growthBadge(pct) {
-    if (pct === null) return '<span class="kpi-badge badge-flat">—</span>';
-    const cls = pct > 0 ? 'badge-up' : pct < 0 ? 'badge-down' : 'badge-flat';
-    const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '=';
-    const display = Math.abs(pct * 100) > 999 ? '>999%' : Math.abs(pct * 100).toFixed(1) + '%';
-    return `<span class="kpi-badge ${cls}">${arrow} ${display}</span>`;
-  }
-
-  const cpa = totalApps > 0 ? totalSpend / totalApps : null;
-
-  const cards = [
-    { label: 'Total Jobs Posted',     value: fmtNum(totalJobs),  sub: 'Across all boards',        color: 'c-navy',    icon: '📋' },
-    { label: 'Total Job Views',       value: fmtNum(totalViews), sub: 'Impressions / clicks',     color: 'c-sky',     icon: '👁️' },
-    { label: 'Total Applications',    value: fmtNum(totalApps),  sub: 'Applied candidates',       color: 'c-teal',    icon: '✅' },
-    { label: 'Resumes Viewed',        value: fmtNum(totalSrch),  sub: 'Sourced this period',      color: 'c-purple',  icon: '🔍' },
-    { label: 'Most Utilized Board',   value: topPost   ? topPost[0]   : '—', sub: topPost   ? `${fmtNum(topPost[1].jobs)} jobs posted`   : '', color: 'c-success', icon: '🏆' },
-    { label: 'Least Utilized Board',  value: leastPost ? leastPost[0] : '—', sub: leastPost ? `${fmtNum(leastPost[1].jobs)} jobs posted` : '', color: 'c-warn',    icon: '⚠️' },
-    { label: 'Week-over-Week Growth', value: wowGrowth !== null ? (Math.abs(wowGrowth*100)>999 ? '>999%' : (wowGrowth*100).toFixed(1)+'%') : '—', sub: growthBadge(wowGrowth) + ' vs prior week', color: wowGrowth > 0 ? 'c-success' : 'c-danger', icon: '📈' },
-    { label: 'Active Recruiters',     value: fmtNum(activeRecs), sub: 'With posting or search activity', color: 'c-orange', icon: '👤' },
+  const srcCards = [
+    { label: 'Candidates Sourced', value: fmtNum(totalSrchRecs), sub: 'profiles across all sources' },
+    { label: 'Contacts Made',      value: fmtNum(totalContacts), sub: 'profile unlocks & connections' },
+    topSrcEntry
+      ? { label: 'Top Recruiter', value: fmtNum(topSrcEntry[1].views), sub: topSrcEntry[0] }
+      : { label: 'Active Recruiters', value: fmtNum(Object.keys(APP.recPost).length), sub: 'with posting activity' },
   ];
 
-  if (totalSpend > 0) {
-    cards.push({ label: 'Total Ad Spend', value: fmtDol(totalSpend), sub: cpa ? `CPA: ${fmtDol(cpa)}` : '', color: 'c-navy', icon: '💰' });
-  }
-
-  document.getElementById('kpi-grid').innerHTML = cards.map(c => `
-    <div class="kpi-card ${c.color}">
-      <div class="kpi-label">${c.icon} ${c.label}</div>
-      <div class="kpi-value">${c.value}</div>
-      <div class="kpi-sub">${c.sub}</div>
-    </div>
-  `).join('');
+  if (gridPost) gridPost.innerHTML = postCards.map(kCard).join('');
+  if (gridSrc)  gridSrc.innerHTML  = srcCards.map(kCard).join('');
 
   // Period label
   const dates = APP.fPostRecs.map(r => r.date).concat(APP.fSrchRecs.map(r => r.date)).filter(Boolean);
-  if (dates.length > 0) {
+  if (dates.length > 0 && lbl) {
     const minD = new Date(Math.min(...dates));
     const maxD = new Date(Math.max(...dates));
-    document.getElementById('kpi-lbl').textContent = `${dateFmt(minD,'Mon D')} – ${dateFmt(maxD,'Mon D')}, ${maxD.getFullYear()}`;
+    lbl.textContent = `${dateFmt(minD,'Mon D')} – ${dateFmt(maxD,'Mon D')}, ${maxD.getFullYear()}`;
   }
 }
 
@@ -969,22 +952,18 @@ function renderPostingsTable() {
   const alloc  = loadAllocations();
   const boards = Object.entries(APP.boardPost).sort((a,b) => b[1].jobs - a[1].jobs);
   tbody.innerHTML = boards.map(([board, d]) => {
-    const avgViews = d.jobs > 0 ? (d.views / d.jobs).toFixed(1) : '—';
-    const convRate = d.views > 0 ? (d.applications / d.views * 100).toFixed(1) + '%' : '—';
-    const topVert  = [...d.verticals][0] || '—';
-    const al    = alloc[board] || null;
-    const avail = al !== null ? Math.max(0, al - d.jobs) : null;
+    const al     = alloc[board] || null;
+    const active = d.activeJobs || 0;
+    const period = fmtPeriod(d.minDate, d.maxDate);
     return `<tr>
       <td><span class="board-dot" style="background:${boardColor(board)}"></span>${board}</td>
       <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
+      <td class="r">${active > 0 ? fmtNum(active) : '<span class="zero">—</span>'}</td>
       <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
-      <td class="r">${avail === null ? '<span class="zero">—</span>' : fmtNum(avail)}</td>
       <td class="r">${fmtNum(d.views)}</td>
       <td class="r">${fmtNum(d.applications)}</td>
-      <td class="r">${avgViews}</td>
-      <td class="r">${convRate}</td>
-      <td>${topVert}</td>
-      <td class="r">${d.spend > 0 ? fmtDol(d.spend) : '—'}</td>
+      <td>${period}</td>
+      <td class="r">${d.spend > 0 ? fmtDol(d.spend) : '<span class="zero">—</span>'}</td>
     </tr>`;
   }).join('');
 }
@@ -994,16 +973,45 @@ function renderSearchesTable() {
   if (!tbody) return;
   const boards = Object.entries(APP.boardSrch).sort((a,b) => b[1].views - a[1].views);
   tbody.innerHTML = boards.map(([board, d]) => {
-    const respRate = d.searches > 0 ? (d.responses / d.searches * 100).toFixed(1) + '%' : '—';
-    const recsList = [...d.recruiters].slice(0, 3).join(', ') + (d.recruiters.size > 3 ? ` +${d.recruiters.size-3}` : '');
+    const period   = fmtPeriod(d.minDate, d.maxDate);
+    const usage    = fmtNum(d.views || d.searches);
+    let   capLeft  = '<span class="zero">—</span>';
+    let   respRate = d.searches > 0 ? (d.responses / d.searches * 100).toFixed(1) + '%' : '<span class="zero">—</span>';
+    let   notes    = '';
+
+    if (board === 'LinkedIn') {
+      const left = APP.meta?.linkedinCreditsLeft;
+      if (left) capLeft = fmtNum(left) + ' left';
+      const aRate = d.searches > 0 ? (d.contacts / d.searches * 100).toFixed(1) : '—';
+      notes = `InMails sent; ${aRate}% accept rate`;
+      if (APP.meta?.linkedinCreditsUsed) notes += `; ${fmtNum(APP.meta.linkedinCreditsUsed)} credits used`;
+    } else if (board === 'Vivian') {
+      notes = 'Premium + Standard credit tiers';
+    } else if (board === 'Monster') {
+      const avail = APP.meta?.monsterCreditsAvail;
+      if (avail) capLeft = fmtNum(avail) + ' left';
+      const rcvd = APP.meta?.monsterCreditsRcvd;
+      notes = rcvd
+        ? `${fmtNum(d.searches)} searches; ${fmtNum(rcvd)} credits received`
+        : `${fmtNum(d.searches)} searches run`;
+    } else if (board === 'Indeed') {
+      const granted = APP.meta?.indeedContactsGranted;
+      const used    = APP.meta?.indeedContactsUsed;
+      if (granted && used != null) {
+        capLeft = fmtNum(granted - used) + ' left';
+        notes   = `${fmtNum(used)} of ${fmtNum(granted)} contacts used`;
+      }
+    } else {
+      if (d.recruiters?.size > 0) notes = `${d.recruiters.size} recruiter${d.recruiters.size !== 1 ? 's' : ''} active`;
+    }
+
     return `<tr>
       <td><span class="board-dot" style="background:${boardColor(board)}"></span>${board}</td>
-      <td class="r">${fmtNum(d.searches)}</td>
-      <td class="r"><strong>${fmtNum(d.views)}</strong></td>
-      <td class="r">${fmtNum(d.contacts)}</td>
-      <td class="r">${fmtNum(d.responses)}</td>
+      <td>${period}</td>
+      <td class="r"><strong>${usage}</strong></td>
+      <td>${capLeft}</td>
       <td class="r">${respRate}</td>
-      <td>${recsList || '—'}</td>
+      <td class="note-cell">${notes || '—'}</td>
     </tr>`;
   }).join('');
 }
@@ -1591,24 +1599,24 @@ function renderOvPostings(wrapId, mode) {
 
   let html = `<table class="dtbl"><thead><tr>
     <th>Portal</th>
-    <th class="r">Allocated</th>
-    <th class="r">Posted</th>
-    <th class="r">Available</th>
-    <th class="r">Total Views</th>
+    <th class="r">Slots</th>
+    <th class="r">Active</th>
+    <th class="r">Postings</th>
+    <th class="r">Views / Impressions</th>
     <th class="r">Applicants</th>
     <th class="r">Conv. Rate</th>
     ${spendHdr}
-    <th class="r">Recruiters Active</th>
+    <th class="r">Recruiters</th>
   </tr></thead><tbody>`;
 
   if (!boards.length) {
     html += `<tr><td colspan="9" class="empty-cell">No posting data.</td></tr>`;
   } else {
     html += boards.map(([bd, d]) => {
-      const conv  = d.views > 0 ? (d.applications/d.views*100).toFixed(1)+'%' : '—';
-      const color = boardColor(bd);
-      const al    = alloc[bd] || null;
-      const avail = al !== null ? Math.max(0, al - d.jobs) : null;
+      const conv   = d.views > 0 ? (d.applications/d.views*100).toFixed(1)+'%' : '—';
+      const color  = boardColor(bd);
+      const al     = alloc[bd] || null;
+      const active = d.activeJobs || 0;
       let spendCell;
       if (isExec) {
         spendCell = d.spend > 0 ? fmtDol(d.spend) : '<span class="zero">—</span>';
@@ -1620,8 +1628,8 @@ function renderOvPostings(wrapId, mode) {
       return `<tr>
         <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
         <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
+        <td class="r">${active > 0 ? fmtNum(active) : '<span class="zero">—</span>'}</td>
         <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
-        <td class="r">${avail === null ? '<span class="zero">—</span>' : fmtNum(avail)}</td>
         <td class="r">${fmtNum(d.views)}</td>
         <td class="r">${fmtNum(d.applications)}</td>
         <td class="r">${conv}</td>

@@ -144,7 +144,16 @@
         <h2>Executive Summary</h2>
         <span class="sec-sub" id="kpi-lbl">All data</span>
       </div>
-      <div class="kpi-grid" id="kpi-grid"></div>
+      <div class="kpi-groups">
+        <div class="kpi-group" id="kpi-group-postings">
+          <div class="kpi-group-label">Job Postings</div>
+          <div class="kpi-group-cards" id="kpi-grid-postings"></div>
+        </div>
+        <div class="kpi-group" id="kpi-group-sourcing">
+          <div class="kpi-group-label">Resume &amp; Database Sourcing</div>
+          <div class="kpi-group-cards" id="kpi-grid-sourcing"></div>
+        </div>
+      </div>
 
       <!-- Portal Overview Tables -->
       <div class="tbl-card" style="margin-top:20px">
@@ -188,14 +197,12 @@
             <table class="dtbl" id="dtbl-postings">
               <thead><tr>
                 <th>Board</th>
-                <th class="r">Allocated</th>
-                <th class="r">Posted</th>
-                <th class="r">Available</th>
-                <th class="r">Total Views</th>
+                <th class="r">Slots</th>
+                <th class="r">Active</th>
+                <th class="r">Postings</th>
+                <th class="r">Views / Impressions</th>
                 <th class="r">Applicants</th>
-                <th class="r">Avg Views/Job</th>
-                <th class="r">Conv. Rate</th>
-                <th>Top Vertical</th>
+                <th>Period</th>
                 <th class="r">Spend ($)</th>
               </tr></thead>
               <tbody id="dtbl-postings-body"></tbody>
@@ -211,13 +218,12 @@
           <div class="tbl-wrap">
             <table class="dtbl" id="dtbl-searches">
               <thead><tr>
-                <th>Source / Board</th>
-                <th class="r">Searches / Sends</th>
-                <th class="r">Views / Credits</th>
-                <th class="r">Contacts / Unlocks</th>
-                <th class="r">Responses</th>
-                <th class="r">Resp. Rate</th>
-                <th>Active Recruiters</th>
+                <th>Platform</th>
+                <th>Period</th>
+                <th class="r">Usage</th>
+                <th>Capacity / Left</th>
+                <th class="r">Response Rate</th>
+                <th>Notes</th>
               </tr></thead>
               <tbody id="dtbl-searches-body"></tbody>
             </table>
