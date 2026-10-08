@@ -313,11 +313,13 @@ function parseVivianPosting(wb) {
   const hdr = { idx: 0, headers: (rows[0] || []).map(c => strVal(c).trim()) };
   // Applicant and submission counts come from Vivian_Candidates sheet, not Vivian_Posting
   const candStats = parseVivianCandidateStats(wb);
-  const seen = new Set();
   return dataRows(rows, hdr).map(r => {
     const id = strVal(r['objectID'] || r['jobId'] || '');
-    if (id && seen.has(id)) return null;
-    if (id) seen.add(id);
+    // No dedup by objectID: the "Vivian Analysis" sheet's own Number of Jobs count (149)
+    // includes a handful of exact-duplicate rows in this sheet (same objectID appearing
+    // twice) — deduping them undercounts relative to that verified total (145 vs 149).
+    // Rows with no objectID at all are excluded, matching that count exactly.
+    if (!id) return null;
     const stats = candStats[id] || { inbound: 0, proposal: 0 };
     // Build job title from discipline + specialty (no dedicated title column in this schema)
     const disc    = strVal(r['discipline'] || r['jobTitle'] || '');
@@ -740,14 +742,17 @@ function aggregate() {
 
     if (r.recruiter) {
       if (!APP.recPost[r.recruiter]) APP.recPost[r.recruiter] = { jobs: 0, views: 0, applications: 0, boards: new Set(), vertical: r.vertical || '' };
-      APP.recPost[r.recruiter].jobs++;
+      // Vivian jobs count comes from the Vivian Analysis sheet correction below — many
+      // Vivian_Posting rows have a blank recruiterFullName, so counting per-record here
+      // would miss those jobs entirely rather than just attribute them to the right person.
+      if (b !== 'Vivian') APP.recPost[r.recruiter].jobs++;
       APP.recPost[r.recruiter].views += r.views;
       if (b !== 'Vivian') APP.recPost[r.recruiter].applications += r.applications;
       APP.recPost[r.recruiter].boards.add(b);
       // Recruiter × Board breakdown
       if (!APP.recPostByBoard[r.recruiter]) APP.recPostByBoard[r.recruiter] = {};
       if (!APP.recPostByBoard[r.recruiter][b]) APP.recPostByBoard[r.recruiter][b] = { jobs:0, views:0, applications:0, submissions:0 };
-      APP.recPostByBoard[r.recruiter][b].jobs++;
+      if (b !== 'Vivian') APP.recPostByBoard[r.recruiter][b].jobs++;
       APP.recPostByBoard[r.recruiter][b].views += r.views;
       if (b !== 'Vivian') {
         APP.recPostByBoard[r.recruiter][b].applications += r.applications;
@@ -811,15 +816,19 @@ function aggregate() {
     const vivRecruiterFilter = document.getElementById('flt-recruiter')?.value || '';
     for (const [name, va] of Object.entries(APP.vivianByRec || {})) {
       if (vivRecruiterFilter && name !== vivRecruiterFilter) continue;
+      // boardPost['Vivian'].jobs is already correct (149, via raw row count with no dedup) —
+      // only applications/submissions need the board-level correction.
       APP.boardPost['Vivian'].applications += va.applications;
       APP.boardPost['Vivian'].submissions  += va.submissions;
 
       if (!APP.recPost[name]) APP.recPost[name] = { jobs: 0, views: 0, applications: 0, boards: new Set(), vertical: '' };
+      APP.recPost[name].jobs         += va.jobs;
       APP.recPost[name].applications += va.applications;
       APP.recPost[name].boards.add('Vivian');
 
       if (!APP.recPostByBoard[name]) APP.recPostByBoard[name] = {};
       if (!APP.recPostByBoard[name]['Vivian']) APP.recPostByBoard[name]['Vivian'] = { jobs: 0, views: 0, applications: 0, submissions: 0 };
+      APP.recPostByBoard[name]['Vivian'].jobs         += va.jobs;
       APP.recPostByBoard[name]['Vivian'].applications += va.applications;
       APP.recPostByBoard[name]['Vivian'].submissions  += va.submissions;
     }
@@ -2148,7 +2157,10 @@ function renderRvPortalTable(name) {
     const d          = pbb[bd];
     const color      = boardColor(bd);
     const al         = alloc[bd] || null;
-    const hasActive  = myPosts.some(r => r.board === bd && r.active !== undefined);
+    // Vivian jobs are all active=true in the source and d.jobs already reflects the
+    // verified Vivian Analysis count (not all of which have a per-row recruiter tag to
+    // filter myPosts by), so use it directly rather than re-deriving from myPosts.
+    const hasActive  = bd !== 'Vivian' && myPosts.some(r => r.board === bd && r.active !== undefined);
     const activeCount = hasActive
       ? myPosts.filter(r => r.board === bd && r.active === true).length
       : d.jobs;
@@ -2311,7 +2323,7 @@ function exportCSV(type) {
     const myPosts = APP.fPostRecs.filter(r => r.recruiter === name);
     Object.entries(pbb).sort((a,b)=>b[1].jobs-a[1].jobs).forEach(([bd,d]) => {
       const al = alloc[bd]||null;
-      const hasActive = myPosts.some(r=>r.board===bd && r.active!==undefined);
+      const hasActive = bd !== 'Vivian' && myPosts.some(r=>r.board===bd && r.active!==undefined);
       const activeCount = hasActive ? myPosts.filter(r=>r.board===bd&&r.active===true).length : d.jobs;
       const closedCount = hasActive ? d.jobs-activeCount : 0;
       const available = al!==null ? Math.max(0,al-d.jobs) : '';
