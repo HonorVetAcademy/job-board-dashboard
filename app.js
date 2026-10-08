@@ -329,7 +329,10 @@ function parseVivianPosting(wb) {
     return {
       board: 'Vivian',
       date: toDate(r['createdAt'] || r['Date'] || ''),
-      recruiter: cleanName(r['recruiterFullName'] || ''),
+      // recruiterFullName and Recruiter are two complementary columns (populated by two
+      // different sync paths): recruiterFullName is blank on 85 of 153 rows, but the
+      // Recruiter column has a clean name on all but 4 of exactly those rows.
+      recruiter: cleanName(r['recruiterFullName'] || r['Recruiter'] || ''),
       vertical: 'Healthcare',
       jobTitle,
       positionId: id,
