@@ -732,14 +732,25 @@ function aggregate() {
   }
 
   // Apply Vivian Analysis corrections — authoritative source for applicant & submission counts.
-  // Only applied for recruiters whose Vivian postings survived the current filter, so filtering
-  // by recruiter/date still narrows the Vivian total rather than always showing the full 73.
-  for (const [name, va] of Object.entries(APP.vivianByRec || {})) {
-    const hasFilteredVivianPosts = APP.recPostByBoard[name] && APP.recPostByBoard[name]['Vivian'];
-    if (!hasFilteredVivianPosts) continue;
-    if (APP.boardPost['Vivian']) APP.boardPost['Vivian'].applications += va.applications;
-    if (APP.recPost[name]) APP.recPost[name].applications += va.applications;
-    APP.recPostByBoard[name]['Vivian'].applications += va.applications;
+  // Many Vivian_Posting rows have a blank recruiterFullName, so a lot of recruiters in the
+  // Vivian Analysis pivot have no individually-tagged posting record to "hang" the correction
+  // off of — checking for one (as a prior version of this code did) silently dropped their
+  // applicants. Read the recruiter filter directly instead, and create the recruiter/board
+  // structures if they don't exist yet so nobody is skipped.
+  if (APP.boardPost['Vivian']) {
+    const vivRecruiterFilter = document.getElementById('flt-recruiter')?.value || '';
+    for (const [name, va] of Object.entries(APP.vivianByRec || {})) {
+      if (vivRecruiterFilter && name !== vivRecruiterFilter) continue;
+      APP.boardPost['Vivian'].applications += va.applications;
+
+      if (!APP.recPost[name]) APP.recPost[name] = { jobs: 0, views: 0, applications: 0, boards: new Set(), vertical: '' };
+      APP.recPost[name].applications += va.applications;
+      APP.recPost[name].boards.add('Vivian');
+
+      if (!APP.recPostByBoard[name]) APP.recPostByBoard[name] = {};
+      if (!APP.recPostByBoard[name]['Vivian']) APP.recPostByBoard[name]['Vivian'] = { jobs: 0, views: 0, applications: 0 };
+      APP.recPostByBoard[name]['Vivian'].applications += va.applications;
+    }
   }
 }
 
