@@ -328,7 +328,7 @@ function parseVivianPosting(wb) {
       jobTitle,
       positionId: id,
       views: 0,
-      applications: stats.inbound,   // Inbound = applicants
+      applications: stats.inbound + stats.proposal,  // Inbound + Proposal = total applicants
       inbound: stats.inbound,
       proposal: stats.proposal,       // Proposal = submissions to client
       active: true,
