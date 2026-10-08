@@ -291,22 +291,25 @@ function parseVivianPosting(wb) {
   const hdr = { idx: 0, headers: (rows[0] || []).map(c => strVal(c).trim()) };
   const seen = new Set();
   return dataRows(rows, hdr).map(r => {
-    const id = strVal(r['objectID'] || r['JobID']);
-    if (seen.has(id)) return null;
-    seen.add(id);
+    const id = strVal(r['objectID'] || r['JobID'] || r['jobId'] || '');
+    // Only deduplicate non-empty IDs; blank-ID rows are each unique entries
+    if (id && seen.has(id)) return null;
+    if (id) seen.add(id);
+    const inbound  = numVal(r['Inbound']  || r['inbound']  || r['Inbound Count']  || 0);
+    const proposal = numVal(r['Proposal'] || r['proposal'] || r['Proposal Count'] || 0);
     return {
       board: 'Vivian',
       date: toDate(r['Date '] || r['Date'] || r['createdAt']),
       recruiter: cleanName(r['recruiterFullName'] || r['Recruiter'] || ''),
       vertical: 'Healthcare',
-      jobTitle: strVal(r['Job'] || r['searchTitle']),
+      jobTitle: strVal(r['Job/searchTitle'] || r['Job'] || r['searchTitle'] || r['jobTitle'] || r['Job Title'] || ''),
       positionId: id,
       views: 0,
-      applications: numVal(r['Inbound']) + numVal(r['Proposal']),
+      applications: inbound + proposal,
       alerts: 0,
       active: true,
-      inbound: numVal(r['Inbound']),
-      proposal: numVal(r['Proposal']),
+      inbound,
+      proposal,
       spend: 0,
     };
   }).filter(Boolean).filter(r => r.jobTitle);
@@ -1608,22 +1611,40 @@ function renderRvPortalOverview() {
 function renderRvCompanyPostings(wrapId) {
   const wrap = document.getElementById(wrapId);
   if (!wrap) return;
+  const alloc  = loadAllocations();
   const boards = Object.entries(APP.boardPost).sort((a,b) => b[1].jobs - a[1].jobs);
   let html = `<table class="dtbl"><thead><tr>
     <th>Job Board</th>
-    <th class="r">Postings</th>
+    <th class="r">Allocated</th>
+    <th class="r">Posted</th>
+    <th class="r">Available</th>
     <th class="r">Views / Impressions</th>
-    <th class="r">Applicants</th>
+    <th class="r">Applications</th>
+    <th class="r">Submissions</th>
   </tr></thead><tbody>`;
   if (!boards.length) {
-    html += `<tr><td colspan="4" class="empty-cell">No posting data.</td></tr>`;
+    html += `<tr><td colspan="7" class="empty-cell">No posting data.</td></tr>`;
   } else {
-    html += boards.map(([bd, d]) => `<tr>
-      <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
-      <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
-      <td class="r">${fmtNum(d.views)}</td>
-      <td class="r">${fmtNum(d.applications)}</td>
-    </tr>`).join('');
+    html += boards.map(([bd, d]) => {
+      const al        = alloc[bd] || null;
+      const available = al !== null ? Math.max(0, al - d.jobs) : null;
+      const availHtml = available === null ? '<span class="zero">—</span>'
+                      : available > 0
+                        ? `<span class="badge badge-blue">${available}</span>`
+                        : `<span class="badge badge-warn">0</span>`;
+      const submissions = APP.fPostRecs
+        .filter(r => r.board === bd)
+        .reduce((s, r) => s + (r.proposal || 0), 0);
+      return `<tr>
+        <td><span class="board-dot" style="background:${boardColor(bd)}"></span><strong>${bd}</strong></td>
+        <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
+        <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
+        <td class="r">${availHtml}</td>
+        <td class="r">${fmtNum(d.views)}</td>
+        <td class="r">${fmtNum(d.applications)}</td>
+        <td class="r">${submissions > 0 ? `<strong>${fmtNum(submissions)}</strong>` : '<span class="zero">—</span>'}</td>
+      </tr>`;
+    }).join('');
   }
   html += '</tbody></table>';
   wrap.innerHTML = html;
@@ -1863,27 +1884,44 @@ function renderRvKpis(name) {
 function renderRvPortalTable(name) {
   const tbody = document.getElementById('rv-portal-body');
   if (!tbody) return;
+  const alloc   = loadAllocations();
   const pbb     = APP.recPostByBoard[name] || {};
   const myPosts = APP.fPostRecs.filter(r => r.recruiter === name);
   const boards  = Object.keys(pbb).sort((a,b) => pbb[b].jobs - pbb[a].jobs);
 
   if (!boards.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">No posting data found for this recruiter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No posting data found for this recruiter.</td></tr>';
     return;
   }
   tbody.innerHTML = boards.map(bd => {
     const d          = pbb[bd];
     const color      = boardColor(bd);
+    const al         = alloc[bd] || null;
     const hasActive  = myPosts.some(r => r.board === bd && r.active !== undefined);
     const activeCount = hasActive
       ? myPosts.filter(r => r.board === bd && r.active === true).length
       : d.jobs;
+    const available  = al !== null ? Math.max(0, al - d.jobs) : null;
+    const availHtml  = available === null ? '<span class="zero">—</span>'
+                     : available > 0
+                       ? `<span class="badge badge-blue">${available}</span>`
+                       : `<span class="badge badge-warn">0</span>`;
+    // Submissions = Proposal count for Vivian; for others show applications as submissions
+    const submissions = myPosts
+      .filter(r => r.board === bd)
+      .reduce((s, r) => s + (r.proposal || 0), 0);
+    const submissionsHtml = submissions > 0
+      ? `<strong>${fmtNum(submissions)}</strong>`
+      : '<span class="zero">—</span>';
     return `<tr>
       <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
+      <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
       <td class="r"><strong>${d.jobs}</strong></td>
       <td class="r"><span class="badge badge-green">${activeCount}</span></td>
+      <td class="r">${availHtml}</td>
       <td class="r">${fmtNum(d.views)}</td>
       <td class="r">${fmtNum(d.applications)}</td>
+      <td class="r">${submissionsHtml}</td>
     </tr>`;
   }).join('');
 }

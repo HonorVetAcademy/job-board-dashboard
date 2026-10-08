@@ -306,7 +306,10 @@
         </div>
 
         <div class="tbl-card">
-          <div class="tbl-hdr"><span>Job Postings by Board</span></div>
+          <div class="tbl-hdr">
+            <span>Job Postings by Board</span>
+            <button class="btn btn-ghost sm" onclick="openAllocModal()">⚙ Set Slot Allocations</button>
+          </div>
           <div class="tbl-wrap" id="rv-ov-post-wrap"></div>
         </div>
 
@@ -341,10 +344,13 @@
           <table class="dtbl">
             <thead><tr>
               <th>Portal</th>
-              <th class="r">Jobs Posted</th>
+              <th class="r">Allocated</th>
+              <th class="r">Posted</th>
               <th class="r">Active</th>
+              <th class="r">Available</th>
               <th class="r">Views / Impressions</th>
               <th class="r">Applications</th>
+              <th class="r">Submissions</th>
             </tr></thead>
             <tbody id="rv-portal-body"></tbody>
           </table>
