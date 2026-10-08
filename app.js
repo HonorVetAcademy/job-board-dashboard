@@ -1893,7 +1893,7 @@ function renderRvCompanyPostings(wrapId) {
         <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
         <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
         <td class="r">${availHtml}</td>
-        <td class="r">${fmtNum(d.views)}</td>
+        <td class="r">${d.views > 0 ? fmtNum(d.views) : '<span class="zero">—</span>'}</td>
         <td class="r">${fmtNum(d.applications)}</td>
         <td class="r">${submissions > 0 ? `<strong>${fmtNum(submissions)}</strong>` : '<span class="zero">—</span>'}</td>
       </tr>`;
@@ -1977,7 +1977,7 @@ function renderOvPostings(wrapId, mode) {
         <td class="r">${al ? fmtNum(al) : '<span class="zero">—</span>'}</td>
         <td class="r">${active > 0 ? fmtNum(active) : '<span class="zero">—</span>'}</td>
         <td class="r"><strong>${fmtNum(d.jobs)}</strong></td>
-        <td class="r">${fmtNum(d.views)}</td>
+        <td class="r">${d.views > 0 ? fmtNum(d.views) : '<span class="zero">—</span>'}</td>
         <td class="r">${fmtNum(d.applications)}</td>
         <td class="r">${d.submissions > 0 ? fmtNum(d.submissions) : '<span class="zero">—</span>'}</td>
         <td class="r">${conv}</td>
@@ -1995,33 +1995,31 @@ function renderOvSearches(wrapId) {
   if (!wrap) return;
   const boards = Object.entries(APP.boardSrch).sort((a,b) => b[1].views - a[1].views);
 
+  // Columns kept universal across every board (Candidates Sourced, Submissions, Contacts,
+  // Recruiters, Period) instead of the previous LinkedIn-only columns (InMails Sent,
+  // Responses, Accepted, Accept Rate), which showed "—" for the other 11 boards. Those
+  // LinkedIn-specific numbers are still shown in full on LinkedIn's own board-detail view.
   let html = `<table class="dtbl"><thead><tr>
     <th>Portal / Source</th>
-    <th class="r">Resumes Viewed</th>
+    <th class="r">Candidates Sourced</th>
     <th class="r">Contacts / Unlocks</th>
-    <th class="r">InMails Sent</th>
-    <th class="r">Responses</th>
-    <th class="r">Accepted</th>
-    <th class="r">Accept Rate</th>
+    <th class="r">Submissions</th>
     <th class="r">Recruiters Active</th>
+    <th>Period</th>
   </tr></thead><tbody>`;
 
   if (!boards.length) {
-    html += `<tr><td colspan="8" class="empty-cell">No resume search data.</td></tr>`;
+    html += `<tr><td colspan="6" class="empty-cell">No resume search data.</td></tr>`;
   } else {
     html += boards.map(([bd, d]) => {
-      const color     = boardColor(bd);
-      const hasInmail = bd === 'LinkedIn' && d.searches > 0;
-      const aRate     = hasInmail ? (d.contacts/d.searches*100).toFixed(1)+'%' : '<span class="zero">—</span>';
+      const color = boardColor(bd);
       return `<tr>
         <td><span class="board-dot" style="background:${color}"></span><strong>${bd}</strong></td>
         <td class="r"><strong>${fmtNum(d.views)}</strong></td>
         <td class="r">${d.contacts > 0 ? fmtNum(d.contacts) : '<span class="zero">—</span>'}</td>
-        <td class="r">${hasInmail ? fmtNum(d.searches)  : '<span class="zero">—</span>'}</td>
-        <td class="r">${hasInmail ? fmtNum(d.responses) : '<span class="zero">—</span>'}</td>
-        <td class="r">${hasInmail ? fmtNum(d.contacts)  : '<span class="zero">—</span>'}</td>
-        <td class="r">${hasInmail ? aRate               : '<span class="zero">—</span>'}</td>
+        <td class="r">${d.submissions > 0 ? fmtNum(d.submissions) : '<span class="zero">—</span>'}</td>
         <td class="r">${d.recruiters ? d.recruiters.size : '—'}</td>
+        <td>${fmtPeriod(d.minDate, d.maxDate)}</td>
       </tr>`;
     }).join('');
   }
